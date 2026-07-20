@@ -17,8 +17,6 @@ const STACK = [
   { name: "Cloudflare Workers" },
   { name: "shadcn/ui" },
   { name: "Tailwind CSS v4" },
-  { name: "Better Auth" },
-  { name: "Drizzle ORM" },
 ] as const;
 
 function HomeComponent() {
@@ -57,7 +55,7 @@ function HomeComponent() {
           <code>{`git clone https://github.com/imaimai17468/imaimai-front-templete.git
 cd imaimai-front-templete
 bun install
-cp .env.local.example .env.local
+bun run cf-typegen
 bun run dev`}</code>
         </pre>
         <p className="text-sm text-muted-foreground">
