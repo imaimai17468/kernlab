@@ -3,10 +3,10 @@ import { useTheme } from "next-themes";
 import { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 
-export const CYCLE = ["light", "dark", "system"] as const;
-export type Theme = (typeof CYCLE)[number];
+const CYCLE = ["light", "dark", "system"] as const;
+type Theme = (typeof CYCLE)[number];
 
-export const ACTION_LABELS: Record<Theme, string> = {
+const ACTION_LABELS: Record<Theme, string> = {
   light: "ダークモードに切り替え",
   dark: "システム設定に切り替え",
   system: "ライトモードに切り替え",
