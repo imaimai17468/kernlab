@@ -8,9 +8,6 @@ TanStack Start + TypeScript + Tailwind CSS + shadcn/ui を使用したモダン�
 - **Language**: TypeScript 7 (native compiler)
 - **Styling**: Tailwind CSS v4
 - **UI Components**: shadcn/ui (Radix UI primitives)
-- **Authentication**: Better Auth (Google OAuth)
-- **Database**: Cloudflare D1 (SQLite) + Drizzle ORM
-- **Storage**: Cloudflare R2
 - **Hosting**: Cloudflare Workers (@cloudflare/vite-plugin)
 - **Code Quality**: oxlint (linting) + oxfmt (formatting)
 - **Testing**: Vitest + Testing Library
@@ -23,13 +20,11 @@ TanStack Start + TypeScript + Tailwind CSS + shadcn/ui を使用したモダン�
 git clone <your-repo-url>
 cd <your-repo-name>
 bun install
-cp .env.local.example .env.local
+bun run cf-typegen
 bun run dev
 ```
 
-http://localhost:5173 でアクセス。`@cloudflare/vite-plugin` により、`bun run dev` でも Cloudflare D1 / R2 バインディングが有効です。
-
-データベース・認証・ストレージのセットアップ手順は [docs/DATABASE_SETUP.md](./docs/DATABASE_SETUP.md) を参照。
+http://localhost:5173 でアクセス。`@cloudflare/vite-plugin` により、`bun run dev` でも Cloudflare Workers ランタイム (workerd) 上で動作します。Cloudflare バインディングを追加する場合は `wrangler.toml` に定義し、`bun run cf-typegen` で `CloudflareEnv` 型を再生成します。
 
 AI エージェント用の Aegis ナレッジベース（`.aegis/`、gitignore 済み）は、初回の Claude Code セッション開始時に SessionStart フックが `aegis-share/`（git 管理のバンドル）から自動構築します。手動で構築する場合: `npx -y @fuwasegu/aegis share-hydrate`
 
@@ -37,7 +32,7 @@ AI エージェント用の Aegis ナレッジベース（`.aegis/`、gitignore 
 
 | Command                   | Description                                     |
 | ------------------------- | ----------------------------------------------- |
-| `bun run dev`             | Start dev server (with CF bindings via workerd) |
+| `bun run dev`             | Start dev server (Cloudflare Workers runtime)   |
 | `bun run build`           | Production build                                |
 | `bun run preview`         | Build & preview in local workerd                |
 | `bun run deploy`          | Build & deploy to Cloudflare Workers            |
@@ -83,21 +78,11 @@ Stop quality gate hook が自動実行するので、手動実行は調査時の
 src/
 ├── routes/                 # TanStack Router file-based routes
 │   ├── __root.tsx          # Root layout (ThemeProvider, Header, Toaster)
-│   ├── index.tsx           # Home page
-│   ├── login.tsx           # Login page
-│   ├── profile.tsx         # Profile page (auth guard via beforeLoad)
-│   └── api/                # API routes (auth catch-all, avatars)
-├── server/
-│   ├── cloudflare.ts       # CloudflareEnv helper (cloudflare:workers)
-│   └── fn/                 # Server functions (createServerFn)
+│   └── index.tsx           # Home page
 ├── components/             # Shared UI components
 │   ├── ui/                 # shadcn/ui primitives
-│   ├── shared/             # Cross-page shared components
-│   └── features/           # Feature-specific components
+│   └── shared/             # Cross-page shared components
 ├── lib/
-│   ├── auth/               # Better Auth 設定
-│   ├── drizzle/            # Drizzle ORM スキーマ
-│   ├── storage/            # R2 ストレージ
 │   └── utils.ts
 ├── router.tsx              # TanStack Router definition
 ├── client.tsx              # Browser entry (hydrateRoot)
@@ -105,7 +90,7 @@ src/
 └── styles.css              # Tailwind v4 tokens
 ```
 
-各ページの機能別コンポーネントは `src/components/features/<feature>/` にコロケーションします。
+コンポーネントは用途で配置します: 汎用 UI プリミティブは `src/components/ui/`、ページ横断で共有するものは `src/components/shared/`。特定の機能に閉じたコンポーネントは分類ディレクトリに集めず、その機能のディレクトリにコロケーションします。
 
 ## AI エージェントで開発する
 
@@ -129,9 +114,6 @@ bunx shadcn@latest add [component-name]
 - [TanStack Router](https://tanstack.com/router/)
 - [Tailwind CSS](https://tailwindcss.com/docs)
 - [shadcn/ui](https://ui.shadcn.com/)
-- [Better Auth](https://www.better-auth.com/)
-- [Cloudflare D1](https://developers.cloudflare.com/d1/)
-- [Cloudflare R2](https://developers.cloudflare.com/r2/)
 - [@cloudflare/vite-plugin](https://developers.cloudflare.com/workers/vite-plugin/)
 - [oxc (oxlint/oxfmt)](https://oxc.rs/)
 - [Vitest](https://vitest.dev/)
