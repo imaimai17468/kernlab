@@ -1,0 +1,482 @@
+{
+  "format_version": 1,
+  "snapshot_id": "207a78dfd0a8f78b84eeae773df41e21972c565c0419cb6c736e3a96bcda2939",
+  "knowledge_version": 92,
+  "documents": [
+    {
+      "doc_id": "adr-0001",
+      "title": "Coding Rules via Claude Rules Include",
+      "kind": "reference",
+      "content": "# 0001. Coding rules live in `.claude/rules/` and load via `AGENTS.md` `@include`\n\n- Status: superseded by 0008\n- Date: 2026-04-23\n\n## Context\n\nThe repository needed a place to record coding conventions (style, architecture, testing, dependencies, agent dispatch policy, tools) that AI coding agents would actually follow.\n\nClaude Code offers two surfaces for project-scoped guidance:\n\n- **Skills** at `.claude/skills/<name>/SKILL.md`: invoked on demand, either explicitly (`/skill-name`) or autonomously based on a `description`-defined trigger.\n- **Always-on rules** loaded through `CLAUDE.md` / `AGENTS.md` `@include` directives.\n\nThe first iteration packed all coding rules into a `coding-guide` skill. In practice this meant the rules were only consulted when the agent decided to look — and that decision was unreliable. Meanwhile `AGENTS.md` carried a duplicated, summarized version of the same rules, creating maintenance drift.\n\n## Decision\n\nCoding rules live as one file per topic under `.claude/rules/` and are loaded into every session via explicit `@.claude/rules/<topic>.md` lines in `AGENTS.md`. The `coding-guide` skill is removed.\n\nFiles: `style.md`, `architecture.md`, `testing.md`, `dependencies.md`, `tools.md`, `agents.md`.\n\n`AGENTS.md` becomes a thin shell — a one-paragraph orientation note plus the `@include` list — so the source of truth is the rule files themselves.\n\n## Alternatives considered\n\n- **Keep the `coding-guide` skill**: rejected because skill invocation is unreliable, and the skill duplicated content already condensed in `AGENTS.md`.\n- **Inline all rules directly into `AGENTS.md`**: rejected because the file would balloon past comfortable length, and per-topic editing would touch one large file instead of small focused files.\n- **Use a dedicated marketplace / framework (e.g., aegis, superpowers)**: rejected for now — too few rule files to justify the runtime / setup cost. Reconsider when rule count exceeds ~15 or per-file-path scoping is needed.\n\n## Consequences\n\n- Rules apply on every session start without agent action — no missed-trigger failure mode.\n- Each rule is one focused file, so edits are surgical and diffs are readable.\n- The `stop-agent-review.sh` hook reads from `.claude/rules/*.md` directly, keeping enforcement aligned with the source of truth.\n- Cost: every session pays the token weight of the full rule set even when rules aren't relevant to the current task. Acceptable while the rule set is small.\n",
+      "content_hash": "14e34365788b45dc31fd2af5d0b92a88d5c26c196eeb95c984d66c8347c0a412",
+      "ownership": "file-anchored",
+      "template_origin": null,
+      "source_path": "docs/adr/0001-coding-rules-via-claude-rules-include.md",
+      "source_refs_json": null
+    },
+    {
+      "doc_id": "adr-0002",
+      "title": "Direct Deps Only Audit",
+      "kind": "reference",
+      "content": "# 0002. `bun audit` blocks only on direct-dep vulnerabilities\n\n- Status: accepted\n- Date: 2026-04-24\n\n## Context\n\nAdding `bun audit` to CI surfaced 60 vulnerabilities across direct and transitive dependencies. Direct ones (e.g., outdated `drizzle-orm` with a SQL injection advisory) are fixable by version bumps. Transitive ones (`tar`, `fast-xml-parser`, `undici`, etc., reachable through `@aws-sdk`, `wrangler`, `vitest`) cannot be patched without `package.json` `overrides`.\n\nA first attempt added 13 `overrides` entries to silence the audit. This achieved a clean audit but introduced significant maintenance debt:\n\n- Each override is a manual patch unrelated to product intent\n- Dependabot does not track override-pinned versions\n- Major-version overrides on transitive deps (e.g., `fast-xml-parser` 4 → 5 inside `@aws-sdk`) carry runtime risk that build-time tests can't catch\n- Overrides leak to projects derived from this template, polluting their dependency graph with patches they may not need\n\n## Decision\n\nThe CI gate fails only on vulnerabilities in **direct** `dependencies` / `devDependencies`. Transitive vulnerabilities are reported as informational and tolerated until upstream releases catch up. The check is implemented in `scripts/audit-direct.sh`, which intersects `bun audit --json` output with the direct-dep keys from `package.json`.\n\n`overrides` is not used.\n\n## Alternatives considered\n\n- **Keep `overrides` and block on all severities**: rejected — high maintenance cost, runtime risk from forced major bumps, template pollution.\n- **`bun audit --audit-level=high`**: rejected — still flags transitive issues we can't patch, and ignores low/moderate direct-dep findings we'd want to see.\n- **`continue-on-error: true` on the audit step**: rejected — reduces audit to a warning humans will eventually ignore. Direct-dep findings should hard-block.\n- **`npm audit signatures` / supply-chain provenance verification**: not yet — Bun does not surface a comparable check at parity, and it overlaps with what Socket.dev (separate decision) covers.\n\n## Consequences\n\n- Direct deps stay clean and force timely upgrades when advisories drop.\n- Transitive vulnerabilities ride until the responsible direct dep updates its pin. Operationally this means roughly weekly attention via Dependabot PRs.\n- The script is the source of truth for \"what counts as a blocker\"; future tightening (severity threshold, allowlist by CVE) edits one file.\n- Derivative projects inherit the same boundary without any per-project tweaks.\n",
+      "content_hash": "e1196bde0b1d3125f851cfc799459f9dead1aea995fa47cee9d175c140908698",
+      "ownership": "file-anchored",
+      "template_origin": null,
+      "source_path": "docs/adr/0002-direct-deps-only-audit.md",
+      "source_refs_json": null
+    },
+    {
+      "doc_id": "adr-0003",
+      "title": "Subagent Driven Implementation",
+      "kind": "reference",
+      "content": "# 0003. Ticket-granularity implementation is delegated to subagents\n\n- Status: superseded by 0012\n- Date: 2026-04-24\n\n> **Superseded by [ADR-0012](0012-parent-centric-implementation.md)** (2026-07-09):\n> the parent session now implements directly by default; delegation is decided\n> by context impact (exploration and independent parallel units), not task\n> size. Read this ADR for the original rationale; read ADR-0012 for why the\n> premises no longer held.\n\n## Context\n\nWhen the parent session (the one talking to the user) implements features directly, two costs accumulate:\n\n1. The parent's context window fills with implementation details (file reads, search results, intermediate edits) that aren't needed for orchestration. As context grows, response quality degrades.\n2. Every implementation step uses the parent's model (typically Opus). Most implementation steps don't need Opus; they need a competent executor.\n\nClaude Code provides the `Agent` tool, which dispatches a fresh subagent with isolated context and a per-call model override. Built-in subagent types include `general-purpose` (full toolkit), `Explore` (read-only search), `Plan` (design only), and others.\n\n## Decision\n\nImplementation work at \"ticket\" granularity — components, bug fixes, refactors, anything that would normally be one PR — is dispatched to a subagent rather than executed in the parent session. The parent's job is briefing, dispatch, review, and commit/PR.\n\nDefault models per subagent type are codified in `.claude/rules/agents.md`:\n\n- `general-purpose` → `sonnet`\n- `Explore` → `haiku`\n- `Plan` → `sonnet`\n\n`opus` is used only when the dispatched task involves non-trivial design judgment or when a `sonnet`-level run came back with low-quality output.\n\nTrivial work (one-line fixes, typo corrections, config tweaks) stays in the parent — dispatch overhead exceeds the savings.\n\n`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` is enabled for genuine multi-agent parallel collaboration only, not for single-task offloads.\n\n## Alternatives considered\n\n- **Always implement in the parent**: rejected — context bloat and Opus overuse on mechanical work.\n- **Always dispatch (including trivial)**: rejected — briefing overhead and the round-trip latency outweigh savings on small edits.\n- **Always use Opus in subagents**: rejected — defeats the cost-saving purpose. Most ticket-granularity work runs cleanly on Sonnet.\n- **Build many task-specific custom subagents** (`component-scout`, `bug-hunter`, etc.): rejected for now — speculative without observed need. Add when a clear pattern emerges from real use.\n\n## Consequences\n\n- Parent context stays compact across long conversations, preserving response quality.\n- Cost per implementation drops because Sonnet/Haiku do the bulk of the work.\n- The user sees a \"diff plus summary\" return rather than a streaming implementation, which is worse for live observation but better for asynchronous review.\n- Subagents inherit no in-session memory, so briefings must be self-contained — every dispatch needs explicit context, file paths, and acceptance criteria. This is a deliberate trade for isolation.\n",
+      "content_hash": "2d0dfc9095b5a59bb311e143f723cb758901bb13ccad65a78a55ab6cf07b5095",
+      "ownership": "file-anchored",
+      "template_origin": null,
+      "source_path": "docs/adr/0003-subagent-driven-implementation.md",
+      "source_refs_json": null
+    },
+    {
+      "doc_id": "adr-0004",
+      "title": "Permission Deny as Security Boundary",
+      "kind": "reference",
+      "content": "# 0004. `permissions.deny` is the security boundary, not `ask`\n\n- Status: accepted (amended by 0013)\n- Date: 2026-04-23\n\n> **Amended by [ADR-0013](0013-deterministic-enforcement-gates.md)** (2026-07-09):\n> the `.env` part of this boundary was bypassable via allowed Bash readers\n> (`cat`, `grep`, `head`, `tail`). A `PreToolUse(Bash)` guard hook now blocks\n> commands referencing `.env` files; the deny entries below remain for\n> tool-level access.\n\n## Context\n\n`.claude/settings.json` permissions have three buckets: `allow` (auto-execute), `ask` (prompt user), `deny` (refuse). The initial configuration used only `allow` and `ask`, treating `ask` as the safety net for risky operations like `git push` or `rm`.\n\nThis relies on the user actually reading and refusing the prompt. In practice:\n\n- Permission modes (`acceptEdits`, `bypassPermissions`, `--dangerously-skip-permissions`, auto mode) collapse `ask` into effective `allow`.\n- Prompt-injection content from web pages, MCP tools, or files can pressure the agent into running destructive commands; an `ask` dialog mixed in with legitimate requests is easy to approve mechanically.\n- Some actions are not reversible enough for prompt-based gating to be useful — `rm -rf`, `git push --force` to main, `git reset --hard`, dropping `.env` reads — and should be refused outright.\n\n## Decision\n\n`deny` enumerates operations that are never acceptable, even with explicit approval. Specifically:\n\n- Destructive `rm` (`-rf` / `-fr` / `-r`)\n- Force-push variants and `--force-with-lease`\n- `git reset --hard`, `git clean -fd[x]`, `git branch -D`, `git checkout .` / `--`, `git restore .` / `--`\n- `git commit --amend` (history rewriting on shared work)\n- `sudo`, broad `chmod -R`\n- `Read` / `Write` / `Edit` against `.env`, `.env.local`, `.env.development`, `.env.production`\n\n`ask` covers the remaining consequential operations (normal `git push`, `git commit`, `gh pr create`, deploys, `rm` of single files, `bun add` without `-E`).\n\n`allow` is widened to cover read-only operations (git status / log / diff / show / branch / blame, `gh pr view`, `bun pm ls`) so the user is not interrupted for routine inspection.\n\n## Alternatives considered\n\n- **Keep using `ask` for everything risky**: rejected — `ask` is bypassable in multiple modes and depends on human vigilance.\n- **`deny` everything except a small `allow` list**: rejected — too restrictive for normal flow, generates constant friction.\n- **External wrapper script that filters commands before they reach Bash**: rejected for now — `permissions` is the supported mechanism, and external wrappers are easy to circumvent and harder to debug.\n\n## Consequences\n\n- Destructive operations are off the table regardless of session mode or prompt-injection pressure.\n- `ask` bucket stays focused on operations a user genuinely should approve case-by-case.\n- New tools added to the project may need explicit `allow` entries; otherwise they fall through to the default `ask`. This is a feature — it forces conscious decision-making about new tooling.\n- When this list needs to evolve (new bypass techniques, new tools), edit `.claude/settings.json` directly.\n",
+      "content_hash": "aa578d0dd38794b48432b722cdb62bd82aa873481d7f6eeace1ef2bce787af2d",
+      "ownership": "file-anchored",
+      "template_origin": null,
+      "source_path": "docs/adr/0004-permission-deny-as-security-boundary.md",
+      "source_refs_json": null
+    },
+    {
+      "doc_id": "adr-0005",
+      "title": "Wrangler Types for Cloudflare Env",
+      "kind": "reference",
+      "content": "# 0005. Generate `CloudflareEnv` via `wrangler types`, not hand-written\n\n- Status: accepted\n- Date: 2026-04-23\n\n## Context\n\nThe `getCloudflareContext().env` object's shape (D1 / R2 / KV / vars) is dictated by `wrangler.toml`. Originally `src/env.d.ts` declared a hand-maintained `CloudflareEnv` interface mirroring those bindings.\n\nThe hand-maintained file is silently desynchronized whenever `wrangler.toml` adds or renames a binding. Type errors only surface at the call site, often far from the change.\n\n`wrangler types` generates a `worker-configuration.d.ts` directly from `wrangler.toml`, producing a `CloudflareEnv` interface that is guaranteed to match the actual bindings (plus the workerd runtime types).\n\n## Decision\n\nDrop hand-maintained `src/env.d.ts`. Add `cf-typegen` script (`wrangler types --env-interface CloudflareEnv`) and gitignore the output `worker-configuration.d.ts`. Whenever `wrangler.toml` changes, run `bun run cf-typegen` to regenerate.\n\nThe generated file lives at the project root and is picked up automatically by the existing `tsconfig.json` `**/*.ts` include glob — no additional config required.\n\n## Alternatives considered\n\n- **Keep `src/env.d.ts` hand-maintained**: rejected — silent drift between `wrangler.toml` and the type is too easy.\n- **Commit `worker-configuration.d.ts`**: rejected — it's a generated artifact, large (>400 KB), and noisy in diffs. Treating generated files like committed source invites stale-on-clone bugs.\n- **Hook `cf-typegen` into `bun install` or a postinstall script**: rejected — lifecycle scripts are off by default in Bun (see `trustedDependencies`), and adding them just for typegen invites supply-chain script execution we don't otherwise want. Manual regenerate is the explicit ergonomic.\n\n## Consequences\n\n- Adding a binding becomes a two-step ritual: edit `wrangler.toml`, run `bun run cf-typegen`. Forgetting step two surfaces immediately as a type error in any code that touches `env`.\n- The generated file is large but not in the repo, so it doesn't hit code review.\n- Onboarding a new collaborator requires they run `cf-typegen` once after clone — documented in `.claude/rules/tools.md`.\n- The workerd runtime types come along for free, replacing any ad-hoc Cloudflare-runtime type imports.\n",
+      "content_hash": "aea5257f6c42804142eb9f3fd41a6b8926a39dd2cb91a2e16d6973606510a15e",
+      "ownership": "file-anchored",
+      "template_origin": null,
+      "source_path": "docs/adr/0005-wrangler-types-for-cloudflare-env.md",
+      "source_refs_json": null
+    },
+    {
+      "doc_id": "adr-0006",
+      "title": "Orchestration Layering",
+      "kind": "reference",
+      "content": "# 0006. `/start-workflow` is the single orchestration entry; aegis / superpowers / custom skills are sub-steps\n\n- Status: accepted\n- Date: 2026-04-27\n\n## Context\n\nThe repository now has five overlapping layers that all participate in steering an AI coding agent through a task:\n\n1. **Permission gates** (`.claude/settings.json` `deny` / `ask` / `allow`) — physically refuses destructive operations.\n2. **Hooks** (`pre-tool-use-guard`, `stop-quality-gate`, `stop-agent-review`, `stop-component-verify`) — mechanical enforcement of coding rules.\n3. **`.claude/rules/*.md` via `AGENTS.md` `@include`** — keeps coding rules in the prompt at all times.\n4. **aegis** (MCP server, agent + admin surfaces) — deterministic context compilation: given `target_files`, returns the relevant rule / ADR documents with relevance scores.\n5. **superpowers** (Claude marketplace plugin) — opinionated methodology: brainstorming → plans → git worktrees → subagent-driven dev → TDD → review → finishing.\n\nPlus the project's own custom skills: `start-workflow` (entry point), `commit`, `pr`, `empirical-prompt-tuning`.\n\nLayers 4 and 5 in particular have overlapping concerns:\n\n- aegis returns rule docs based on file paths; the same docs are already loaded via `@include`. Without a clear policy this means the same content arrives twice.\n- superpowers' `brainstorming` / `writing-plans` overlap with `start-workflow`'s clarify / plan steps.\n- superpowers' `subagent-driven-development` overlaps with the project's `agents.md` dispatch policy.\n\nThe risk is \"too many cooks\": the agent can't tell which orchestrator owns which step, the user sees inconsistent behavior depending on which trigger fires first, and small operational decisions (model selection, commit splitting) get made in two places.\n\n## Decision\n\n**`/start-workflow` is the single command center for ticket-granularity work.** Every other layer is called as a sub-step from inside `/start-workflow`, not as an independent autonomous trigger.\n\nThe intended call graph for a typical request is:\n\n```\n/start-workflow\n├── 1. clarify (one focused question if needed)\n├── 2. aegis_compile_context(target_files, plan)\n│       → returns relevant rules/ADRs with relevance scores\n├── 3. plan (delegate to superpowers:writing-plans if the work warrants it)\n├── 4. ADR? (write docs/adr/NNNN-... if a non-obvious design decision exists)\n├── 5. dispatch to general-purpose subagent (model: sonnet, per agents.md)\n├── 6. parent reviews diff (Before-reporting-done pass from agents.md)\n├── 7. /commit (split discipline)\n└── 8. /pr (English summary + demo GIF)\n\nHooks (pre/post-tool, stop) fire automatically throughout — they are\nenforcement, not orchestration, and need no explicit coordination.\nPermission gates are the security floor — they apply everywhere.\n```\n\n**Layer roles, codified:**\n\n- **Permissions / hooks**: enforcement only. Do not change them based on which orchestrator is active.\n- **`@include` rules**: always-on baseline. Stay in `AGENTS.md` until aegis context overhead becomes the bottleneck.\n- **aegis**: context narrowing. Used inside `start-workflow` step 2 — not invoked autonomously elsewhere.\n- **superpowers**: methodology toolbox. Individual superpowers skills (`brainstorming`, `writing-plans`, `using-git-worktrees`, `test-driven-development`, etc.) are called explicitly from inside `start-workflow` when their step applies. Do not let superpowers auto-trigger as a parallel orchestrator — the project's `start-workflow` owns the sequence.\n- **custom skills (`commit`, `pr`)**: prevail over any superpowers equivalent. They are empirically tuned for this project; do not use the marketplace replacements.\n- **`start-workflow`**: the only orchestrator. Trivial work (one-line fixes, config tweaks, docs-only changes) skips this entirely and is handled directly in the parent.\n\nWhen `start-workflow` and a superpowers skill describe the same step (e.g., planning), `start-workflow`'s sequence is authoritative; superpowers' skill is a tool the parent may use to execute the step, not a parallel decision-maker.\n\n## Alternatives considered\n\n- **Adopt superpowers as the orchestrator and remove `start-workflow`**: rejected. Superpowers' skills auto-trigger based on the LLM's interpretation of `description` fields, which is empirically unreliable (the same problem that killed the `self-review` skill in this project). An explicit single entry point is more predictable.\n\n- **Drop `@include` rules and rely entirely on aegis**: rejected for now. The current rule set is small enough that always-loading is cheaper than the round-trip cost of compiling context for every interaction. Reconsider when rule count exceeds ~15 or when context bloat becomes measurable.\n\n- **Skip `start-workflow` and let aegis + superpowers self-coordinate**: rejected. There is no shared protocol between them; both will think they own the planning step, and the user sees whichever trigger fires first.\n\n- **Build a `/start-workflow` so heavyweight that it replaces superpowers entirely**: rejected. Superpowers' skills are well-tested and cover ground the project would have to re-solve (worktree setup, TDD enforcement). Use them as building blocks, don't reinvent.\n\n## Consequences\n\n- **One mental model for the user**: `/start-workflow` for real work, direct interaction for trivial. No \"which entry point do I use?\" question.\n- **One mental model for the agent**: every ticket-granularity request enters through `start-workflow`; the agent does not need to predict whether superpowers or aegis will trigger first.\n- **Layer boundaries stay clean**: enforcement layers (permissions, hooks) are policy, not flow. Orchestration layers (start-workflow, aegis, superpowers, custom skills) have a clear hierarchy.\n- **Cost**: superpowers' value-add depends on it being explicitly called from `start-workflow`. If a future agent forgets to use it, the project loses superpowers' methodology benefits without noticing — this is detectable through observation (compile_miss-style feedback) but requires periodic review.\n- **`start-workflow` becomes load-bearing.** Changes to it need empirical tuning (`empirical-prompt-tuning` skill) before they ship, because every ticket-granularity task flows through it.\n- **Migration path is preserved**: if aegis or superpowers proves more reliable than expected, this decision can be reversed by editing `start-workflow` and superseding this ADR. The dependency goes one way (start-workflow → aegis / superpowers), so peeling layers is feasible.\n",
+      "content_hash": "b1367a7fffc8568dc711a43df4d9016372dabcdfef2d07d878b63acbf39d3009",
+      "ownership": "file-anchored",
+      "template_origin": null,
+      "source_path": "docs/adr/0006-orchestration-layering.md",
+      "source_refs_json": null
+    },
+    {
+      "doc_id": "adr-0007",
+      "title": "TanStack Start Migration",
+      "kind": "reference",
+      "content": "# 0007. Migrate from Next.js (App Router + OpenNext) to TanStack Start\n\n- Status: accepted (amended 2026-07-12)\n- Date: 2026-04-30\n\n> **Amendment (2026-07-12, audit finding K1):** TanStack Start dropped Nitro\n> after this ADR was written, so the deployment mechanism described below no\n> longer matches the code. The current mechanism:\n>\n> - The Worker integration is **`@cloudflare/vite-plugin`**\n>   (`vite.config.ts`: `cloudflare({ viteEnvironment: { name: \"ssr\" } })`),\n>   not a Nitro preset.\n> - `wrangler.toml#main` points at the **source entry `./src/ssr.tsx`** (the\n>   plugin builds and serves it); there is no `.output/server/index.mjs` and\n>   no `[assets]` section.\n> - Bindings are read via **`import { env } from \"cloudflare:workers\"`**\n>   (wrapped by `getCloudflareEnv()` in `src/server/cloudflare.ts`), not\n>   Nitro's `getEvent().context.cloudflare.env`.\n> - HTTP endpoints use **`createFileRoute` with `server.handlers`**, not the\n>   `createServerFileRoute(...).methods(...)` API named below.\n> - Build/deploy remains `vite build && wrangler deploy`; dev is `vite dev`\n>   with the plugin providing workerd bindings.\n>\n> The rationale, alternatives, and the rest of the decision stand. The dead\n> `.output/` entry has been removed from `.gitignore` in the same change.\n\n## Context\n\nThis template ran on Next.js 16 (App Router) deployed to Cloudflare Workers via `@opennextjs/cloudflare`. That stack worked, but accumulated friction:\n\n- **Type signal is indirect.** App Router is convention-first. Page params, search params, and layout-to-page data flow are inferred from filesystem structure rather than from a typed router. Errors surface at runtime or as opaque type widening.\n- **OpenNext is an adapter, not a deployment target.** Cloudflare Workers compatibility was achieved by translating the Next runtime into a Workers worker. Each Next minor release risks an OpenNext lag (we hit this in 16.x). The Worker entrypoint, asset pipeline, and Node-compat shims are not under our direct control.\n- **Two server-execution models in one codebase.** App Router exposes Server Components, Server Actions (`\"use server\"`), Route Handlers, Middleware, and `revalidatePath` — overlapping concerns with subtle caching semantics. The template's audience (derivative projects) must learn all of them to ship a small feature.\n- **Vite-native tooling is already preferred elsewhere.** Vitest + `@vitejs/plugin-react` + `vite-tsconfig-paths` are already the test stack. The dev/build pipeline is the only place still on a non-Vite bundler.\n\nTanStack Start (Vite + Nitro + TanStack Router) addresses these:\n\n- TanStack Router gives **end-to-end type inference** from route definitions through `Link`, `useParams`, `useSearch`, and `loader` data — no `routeTree.gen.ts` divergence because the plugin regenerates it on save.\n- Nitro's `cloudflare-module` preset is **a first-class deployment target**, not a translation layer. The Worker entry is generated directly from the app graph; D1/R2/KV bindings reach handlers via `event.context.cloudflare.env`.\n- The server-execution model collapses to two primitives: **Server Functions** (`createServerFn`) for RPC-style mutations and **API Routes** (`createServerFileRoute`) for HTTP endpoints. No `revalidatePath`, no `\"use server\"` directive layering.\n- The build/dev pipeline becomes pure Vite, sharing config and plugin surface with Vitest.\n\n## Decision\n\nMigrate the template to TanStack Start with the **`cloudflare-module` Nitro preset**. OpenNext (`@opennextjs/cloudflare`) and `next` are removed entirely. The migration is a **big bang** replacement on `main`, not an incremental coexistence — Next App Router and TanStack Router cannot share filesystem routing in a single Vite/Nitro pipeline, and the template has only one consumer surface.\n\nKey replacements:\n\n| Concern | Before (Next) | After (TanStack Start) |\n| --- | --- | --- |\n| Routing | `src/app/**/page.tsx`, `layout.tsx`, `not-found.tsx` | `src/routes/**` via `createFileRoute` + `__root.tsx` |\n| Auth guard | `src/middleware.ts` matcher | route `beforeLoad` throwing `redirect()` |\n| HTTP endpoints | `app/api/**/route.ts` (`NextRequest`/`NextResponse`) | `createServerFileRoute(...).methods(...)` |\n| Server mutations | `\"use server\"` actions + `revalidatePath` | `createServerFn` + `queryClient.invalidateQueries` |\n| Cloudflare env | `getCloudflareContext()` (OpenNext) | `getCloudflareEnv()` wrapping Nitro `getEvent().context.cloudflare.env` |\n| Build / deploy | `opennextjs-cloudflare build && wrangler deploy` | `vite build && wrangler deploy` (Nitro emits `.output/server/index.mjs`) |\n| Image optimization | `next/image` + `next.config.mjs` `remotePatterns` | plain `<img>` (R2-served avatars need no transform) |\n\n`wrangler types` (ADR-0005) and the generated `worker-configuration.d.ts` are preserved unchanged — `CloudflareEnv` remains the single source of truth for D1/R2 bindings, and the `cf-typegen` script keeps its current contract.\n\n`better-auth`, `drizzle-orm`, Tailwind v4 (PostCSS), `react-hook-form`, `zod`, `next-themes`, `sonner`, oxlint/oxfmt, tsgo, vitest, knip, and lefthook are all retained at their current pinned versions.\n\n## Alternatives considered\n\n- **Stay on Next.js.** Rejected — the friction above is structural, not transient. Next 17 will not undo the App Router execution model or remove the OpenNext dependency for Workers.\n- **React Router v7 (Remix lineage).** Rejected — closer to Next's loader/action model than TanStack's typed-router model, and lacks first-party Cloudflare Workers SSR ergonomics on parity with Nitro's preset matrix.\n- **Astro with React islands.** Rejected — the template targets fully interactive product UIs (login, profile editing, file upload). Astro's MPA-first model is a poor fit.\n- **Incremental coexistence (Next pages alongside TanStack routes).** Rejected — file-system routing collisions, two SSR runtimes, doubled deploy surface. Big-bang on a template repo is cheaper than carrying a transitional state into derivative projects.\n- **Drop Cloudflare Workers, move to Node hosting (Vercel / Render).** Rejected — D1 + R2 binding access is a deliberate template feature; losing it would force every derivative project to re-pick a database and storage layer.\n\n## Consequences\n\n- **Derivative projects gain typed routing for free.** New routes, params, and search params are type-checked from declaration through usage. This is the largest day-to-day DX win.\n- **One server-execution model.** `createServerFn` for mutations, `createServerFileRoute` for HTTP. `\"use server\"`, `revalidatePath`, `next/headers`, `next/cache`, `next/navigation` are gone.\n- **Cache invalidation is now an explicit client concern.** Server Functions don't auto-invalidate; mutations must call `queryClient.invalidateQueries` (or the equivalent). This trades implicit revalidation for predictable, debuggable cache flow.\n- **Worker entrypoint owned by Nitro.** `wrangler.toml#main` points to `.output/server/index.mjs`, `[assets].directory` to `.output/public`. Upgrading wrangler or the Cloudflare runtime no longer requires waiting on an OpenNext release.\n- **Migration cost is one-time but non-trivial.** Every page, API route, server action, and middleware is rewritten. The `Link` import path changes in 7 files. `next/image` callers (currently only `next.config.mjs#remotePatterns` for `lh3.googleusercontent.com`) are dropped — derivative projects that need image transforms must add `@unpic/react` or similar explicitly.\n- **`bun audit` direct-dep policy (ADR-0002) still holds.** Adding `@tanstack/react-start` and `vite` as direct deps means their advisories are now in scope; transitive vulnerabilities under them are tolerated under the existing rule.\n- **Subagent-driven implementation policy (ADR-0003) and the rules-include layout (ADR-0001) are unaffected.** The migration itself is dispatched task-by-task per `.claude/rules/agents.md`.\n",
+      "content_hash": "a2a76083c37d7b7f02d2ed7a3029507acf6eaae9c2a78400e841a2aa62b71395",
+      "ownership": "file-anchored",
+      "template_origin": null,
+      "source_path": "docs/adr/0007-tanstack-start-migration.md",
+      "source_refs_json": null
+    },
+    {
+      "doc_id": "adr-0008",
+      "title": "Consolidate Rules into AGENTS.md",
+      "kind": "reference",
+      "content": "# 0008. Coding rules are condensed into AGENTS.md; detailed rule files and the codex pre-commit review are retired\n\n- Status: accepted\n- Date: 2026-06-13\n\n## Context\n\nADR-0001 placed coding rules as seven files under `.claude/rules/`, loaded into every session via `AGENTS.md` `@include`. The rule set grew large (hooks.md alone exceeded 600 lines), so every session paid a heavy always-on token cost — the exact failure mode ADR-0001 flagged as \"acceptable while the rule set is small\". Meanwhile two review mechanisms enforced the rules at commit time: a `PreToolUse(Bash)` hook running a codex CLI review (`pre-commit-code-review.sh`) and a guard requiring a prior review skill invocation (`pre-commit-review-guard.sh`). The codex hook added latency (up to 300 s per commit), an external CLI dependency, and coupling to the rule-file paths.\n\n## Decision\n\n1. `.claude/rules/` is deleted. The durable essence of each rule (white-box testing, Rules of React, commit split discipline, agent dispatch) is condensed into sections of `AGENTS.md`, which becomes the single always-on instruction file alongside cross-project philosophy sections (Design Philosophy / Knowledge Currency / Code Practices). `CLAUDE.md` holds only `@AGENTS.md`.\n2. The corresponding `rule-*` documents are removed from the Aegis knowledge base; the KB carries ADRs only.\n3. The two pre-commit hooks are deleted. Code review moves into the `start-workflow` skill as an explicit step: after implementation, the parent dispatches the `code-reviewer` agent (`model: opus`) on the uncommitted diff and addresses findings before commit.\n4. The subagent model table moves from `.claude/rules/agents.md` to `AGENTS.md`: sonnet for mechanical/implementation work, opus for planning and review, fable for long-horizon or escalated work.\n\nThis supersedes ADR-0001 and amends ADR-0006 (layer 3 \"rules via @include\" is now \"condensed AGENTS.md\") and ADR-0003 (model defaults now codified in AGENTS.md).\n\n## Alternatives considered\n\n- **Keep detailed rules on disk, serve them via Aegis only**: rejected — deferred delivery requires readable source files, and keeping deleted-from-prompt files on disk invites drift between the condensed and detailed versions.\n- **Keep the codex pre-commit hook**: rejected — per-commit latency and an external CLI dependency, while the same review quality is available from an opus subagent dispatched once per task instead of once per commit.\n- **Inline full rule detail into AGENTS.md**: rejected — recreates the token cost the change is meant to remove.\n\n## Consequences\n\n- Session startup context shrinks substantially; the condensed rules keep the enforceable core.\n- Detail and rationale beyond the condensed text now live only in git history and ADRs — when a condensed rule proves too terse in practice, expand it in place or record the rationale as a new ADR.\n- Commits are no longer mechanically gated by review; the review obligation lives in `start-workflow` and the AGENTS.md \"Review\" section. This trades hard enforcement for speed and must be watched for regressions.\n- Hooks `stop-aegis-sync-check.sh`, `session-start-aegis-hydrate.sh`, and `user-prompt-skill-reminder.sh` now reference `docs/adr/` only.\n",
+      "content_hash": "da154842622002d2fb64fb8266a2006c7e0a8b5222c9727871337f390027b71a",
+      "ownership": "file-anchored",
+      "template_origin": null,
+      "source_path": "docs/adr/0008-consolidate-rules-into-agents-md.md",
+      "source_refs_json": null
+    },
+    {
+      "doc_id": "adr-0009",
+      "title": "Unified Review Workflow",
+      "kind": "reference",
+      "content": "# 0009. Pre-commit review runs as a single dynamic workflow (find → verify → stamp)\n\n- Status: superseded by 0011\n- Date: 2026-07-02\n\n> **Superseded by [ADR-0011](0011-nested-subagent-review-and-verification.md)** (2026-07-05):\n> the find → adversarial-verify discipline, commit-gate contract, and fail-closed\n> guarantees below still hold, but the *mechanism* changed — the dynamic workflow\n> became a nested subagent orchestrator and the parallel finder lanes collapsed\n> into one comprehensive finder. Read this ADR for the *why* of the review shape;\n> read ADR-0011 for the current implementation.\n\n## Context\n\nThe review step (start-workflow step 6, AGENTS.md \"Review\") dispatched a single\n`code-reviewer` agent (opus) that checks the uncommitted diff against AGENTS.md.\nA commit gate enforces it: `pre-commit-review-reminder.sh` blocks `git commit`\nunless `.claude/.review-stamp` exists, and `post-agent-review-stamp.sh` creates\nthe stamp when a `code-reviewer` Agent dispatch completes.\n\nClaude Code's built-in `/code-review` skill demonstrated a stronger review shape:\nparallel finder agents with fixed lenses (so attention doesn't collapse onto the\nfirst bug class found), deduplication, then independent adversarial verifiers\n(\"try to refute this\") that kill plausible-but-wrong findings. We want that shape\nAND the project-rules check, as one review with one report — not two parallel\nreview tracks with separate dispatch points and separate outputs.\n\nConstraints discovered while designing this:\n\n- `/code-review` is a skill whose orchestration runs in the parent session via\n  the Workflow tool. Invoking it from inside a workflow agent is unverified and\n  likely degrades (workflow nesting is one level; subagents lack the Workflow tool).\n- Background workflow completion fires no hook event, so the existing\n  `PostToolUse(Agent)` stamp mechanism cannot see a workflow-based review finish.\n\n## Decision\n\nA saved dynamic workflow, `.claude/workflows/review-diff.js`, is the single\npre-commit review. It runs finder lanes in parallel over the uncommitted diff —\nbug-hunt lenses (logic, state, integrity, cleanup; `effort: \"high\"` adds security\nand contracts) plus a rules lane that reuses the `code-reviewer` agent via\n`agentType` — deduplicates candidates by (file, line), adversarially verifies\neach survivor in a fresh context (CONFIRMED / PLAUSIBLE / REFUTED), ranks the\nsurvivors, and finally — only when every finder lane completed — has a trivial\nagent create `.claude/.review-stamp` and confirm it exists. A\n`PreToolUse(Workflow)` hook clears any pre-existing stamp when review-diff\nlaunches, so the gate is owned by the current run and a degenerate run (failed\nlanes, unconfirmed stamp, stale stamp from a prior cycle) fails closed. The\nparent (or user, via `/review-diff`) invokes it in start-workflow step 6 and\nfixes findings directly.\n\nA direct `code-reviewer` dispatch remains a valid fallback (it still stamps via\n`post-agent-review-stamp.sh`) for environments where the Workflow tool is\nunavailable.\n\n## Alternatives considered\n\n- **Run `/code-review` and the `code-reviewer` dispatch side by side**: rejected —\n  two review tracks, two reports, and the bug-hunt half invisible to the commit\n  gate. The user explicitly wants one integrated review.\n- **Wrap the built-in `/code-review` skill inside a workflow agent's prompt**:\n  rejected — skill availability inside workflow agents is undocumented, and the\n  skill's own Workflow orchestration cannot nest, so it would silently degrade\n  to a single-agent inline review.\n- **Re-key the gate on `PostToolUse(ReportFindings)`**: rejected — ReportFindings\n  is reserved for the built-in code-review skill's instructions; off-label use\n  couples the gate to internals we don't control.\n- **Rewrite the gate hooks around workflow launch (`PostToolUse(Workflow)`)**:\n  rejected — fires at launch, not completion; a commit could pass the gate while\n  the review is still running.\n\n## Consequences\n\n- One review entry point, one ranked report; refuted findings never reach the\n  parent. The commit-gate contract (`.review-stamp` file) is unchanged.\n- Review cost rises (5–7 finders + 1–3 verifiers per candidate vs. one agent).\n  `effort` stays an enum so intermediate tiers can be added without breaking callers.\n- The stamp is created by an agent inside the workflow, after verification —\n  the gate marks \"review completed for this cycle\". It is deliberately NOT\n  bound to a hash of the reviewed diff and not consumed per commit: the parent\n  fixes findings after the review and then commits (possibly split into several\n  commits), so strict diff binding would force a re-review after every fix.\n  The exposure is bounded by the clears at the next review launch and the next\n  aegis cycle.\n- `review-diff.js` is load-bearing for every commit; changes to it should go\n  through empirical tuning (ADR-0006 consequence applies to it as it does to\n  start-workflow).\n- The rules lane must explicitly load the path-scoped rule files under\n  `.claude/rules/` — subagents read AGENTS.md but do not auto-load rule files.\n- start-workflow step 6, AGENTS.md \"Review\", and the gate hook's message must\n  stay consistent with this ADR.\n",
+      "content_hash": "75c1fae2ff38034224773abfa595689e722cbd38bef6bc5e43d0cac64886e537",
+      "ownership": "file-anchored",
+      "template_origin": null,
+      "source_path": "docs/adr/0009-unified-review-workflow.md",
+      "source_refs_json": null
+    },
+    {
+      "doc_id": "adr-0010",
+      "title": "Agent Based Spec Verification",
+      "kind": "reference",
+      "content": "# 0010. Interaction-complex features get agent-based spec verification (FSL's discipline without fslc)\n\n- Status: superseded by 0011\n- Date: 2026-07-03\n\n> **Superseded by [ADR-0011](0011-nested-subagent-review-and-verification.md)** (2026-07-05):\n> the formalize → hunt → verify discipline and the design-time (no-stamp) stance\n> below still hold, but the *mechanism* changed — the dynamic workflow became a\n> nested subagent orchestrator and the four parallel hunt lanes collapsed into one\n> comprehensive hunter. Read this ADR for the *why*; read ADR-0011 for the current\n> implementation.\n\n## Context\n\nFSL (https://ymm-oss.github.io/fsl/) verifies finite-state-machine specs with\nan SMT-backed checker (`fslc`): BMC, k-induction, liveness, and refinement.\nIts when-to-use guidance targets exactly the front-end failure modes that\nexample-based tests miss — back / cancel / retry / reload / double-submit /\npermission branching — and argues the deciding factor is interaction\ncomplexity, not scale.\n\nWe evaluated adopting fslc directly (2026-07-03): the tool is real and active\n(Apache-2.0, standalone binaries bundling Z3, v2.6.2 released 2026-07-02) but\nhas essentially zero adoption (5 stars, single org), no TypeScript integration\n(test generation emits Python; no TS types, codegen, or CI recipe), and this\ntemplate's toolchain is Bun + TS. The verifier would run fine in CI, but\nnothing would connect it to the codebase.\n\nMeanwhile the template already has a proven agent pipeline shape: review-diff's\nfind → adversarial-verify structure (ADR-0009) kills plausible-but-wrong\nfindings with independent skeptical contexts.\n\n## Decision\n\nAdopt FSL's **discipline**, not its toolchain. For features with non-obvious\nstate transitions, start-workflow step 4 requires a lightweight spec\n(`specs/<feature>.spec.md`: states, actions with requires/ensures, invariants,\nforbidden flows, requirements — format in `specs/README.md`) verified by a new\n`verify-spec` dynamic workflow before implementation:\n\n1. **Formalize** (1 agent) — normalize the spec into a structured machine and\n   flag ambiguities (undefined states, missing guards, nondeterminism,\n   unsupported requirements). The `fslc check` analog.\n2. **Hunt** (4 parallel lanes) — construct counterexample traces within a\n   step bound against invariants, forbidden flows, liveness, and requirements\n   refinement, using the adversarial toolkit (back, reload, double-submit,\n   permission change). The `fslc verify` analog, heuristic not exhaustive.\n3. **Verify** — an independent context replays each trace step by step and\n   REFUTEs illegal or non-violating traces, mirroring ADR-0009.\n\nThe workflow is design-time and advisory: it does not stamp the commit gate.\nIt runs in a single pass: the parent fixes the design for every CONFIRMED\ncounterexample, and any re-verification is a fresh pass the user explicitly\nrequests — the parent never auto re-dispatches the agent in a loop.\n\n## Alternatives considered\n\n- **Adopt fslc itself**: rejected for now — maturity risk (5 stars, bus factor\n  of one org), zero TS linkage, Python-only test generation. The spec format\n  is deliberately close to FSL's model so `.spec.md` → `.fsl` migration stays\n  cheap if fslc matures; revisit then.\n- **Do nothing (tests only)**: rejected — white-box tests verify the\n  implementation against the developer's mental model; loophole flows live in\n  the mental model itself and need adversarial search before code exists.\n- **Fold spec checking into review-diff**: rejected — wrong timing. Review\n  runs at commit time on code; counterexamples are cheapest to fix at design\n  time before implementation.\n\n## Consequences\n\n- Loophole hunting moves to design time; the spec's invariants and forbidden\n  flows double as white-box test cases after implementation.\n- Honest limitation: agent search proves nothing — it is bounded, heuristic\n  counterexample hunting. Do not present a clean run as verification of\n  correctness.\n- Cost: ~3 agent roles per run (formalize + hunt + verifier child) on opus,\n  only for interaction-complex features.\n- Specs must be kept current when behavior changes; a stale spec misleads\n  every later reader. Spec upkeep is part of the feature's definition of done.\n- `verify-spec.js` shares review-diff's load-bearing status: changes should go\n  through empirical tuning (ADR-0006 consequence applies).\n",
+      "content_hash": "ed9dc9c02b099c93bb472f04c975efb413ebe40c64a35c62c3dc83ee8c3f76e5",
+      "ownership": "file-anchored",
+      "template_origin": null,
+      "source_path": "docs/adr/0010-agent-based-spec-verification.md",
+      "source_refs_json": null
+    },
+    {
+      "doc_id": "adr-0011",
+      "title": "Nested Subagent Review And Verification",
+      "kind": "reference",
+      "content": "# 0011. Review and spec verification run as nested subagent orchestrators (code graph removed)\n\n- Status: accepted (amended by 0013, 0014; mechanism superseded by 0015)\n- Date: 2026-07-05\n\n> **Amended by [ADR-0013](0013-deterministic-enforcement-gates.md)** (2026-07-09):\n> the review stamp is no longer valid across post-review edits — any\n> `Edit`/`Write` clears it, so fixes require a re-review before committing.\n> The dispatch-clears / completion-stamps symmetry below is unchanged.\n\n> **Amended by [ADR-0014](0014-measurement-first-model-continuity.md)** (2026-07-10):\n> `review-diff` gains a delta re-review mode (scoped re-review with the prior\n> report; fail-closed to full), and the \"changes go through empirical tuning\"\n> consequence below is superseded for `review-diff`/`verify-spec` by scored\n> golden-eval runs under `docs/superpowers/evals/`.\n\n## Context\n\nADR-0009 made pre-commit review a dynamic workflow (5–7 parallel finder lanes +\nper-candidate adversarial verifiers), and ADR-0010 built verify-spec the same\nway (4 parallel hunt lanes). A companion feature injected a statically-generated\ndependency graph (`.claude/code-graph.json`, `bun run graph`) into every lane's\nprompt to eliminate redundant codebase exploration.\n\nBenchmarking the whole stack (2026-07-04) contradicted the design assumptions:\n\n| Workflow | code graph | Tokens | Agents |\n|---|---|---|---|\n| verify-spec | off | 710K | 22 |\n| verify-spec | on | 784K | 25 |\n| review-diff | off | 1.11M | 28 |\n| review-diff | on | 1.19M | 30 |\n\n- Code graph injection produced **no** token savings at this project's scale\n  (51 files) — \"graph on\" was consistently equal or worse, adding a scout agent\n  and prompt bloat that outweighed any saved exploration.\n- Parallel finders independently rediscovered the same bugs; dedup collapsed\n  many into one, so the extra lanes bought redundancy, not coverage.\n- A single comprehensive finder reading the diff once yields equivalent findings\n  at roughly 1/5 the cost.\n\n## Decision\n\nBoth reviews run as **pinned named subagents that preload a procedure skill**,\nnot dynamic workflows, and the code graph is removed entirely.\n\nEach verification is a `.claude/agents/*.md` definition (model set per agent —\nsee each `.claude/agents/*.md`) whose behavior\nis fixed by its system prompt and whose procedure is the single source of truth\nin a preloaded skill (`skills:` frontmatter injects the full skill at startup, so\nit cannot be silently ignored). The agent runs the finding pass itself and\ndispatches a **separate verifier child** (`general-purpose`, depth 2) so the\nfinder is never its own verifier:\n\n- **`code-reviewer`** (preloads `review-diff`): find all bug lenses + AGENTS.md and\n  path-scoped rules (coverage-first) → dedup by (file, line) → verifier child\n  REFUTEs each (`high` uses three lenses with majority kill) → return ranked\n  findings. Its completion stamps `.claude/.review-stamp` via the existing\n  `post-agent-review-stamp.sh` hook (matched on `subagent_type == code-reviewer`) —\n  no manual stamp step. This merges the former \"workflow\" and \"fallback dispatch\"\n  paths into one: dispatching `code-reviewer` *is* the review.\n- **`spec-verifier`** (preloads `verify-spec`): formalize the spec → hunt all four\n  lenses → verifier child replays each trace. Design-time; no stamp.\n\nThe find → adversarial-verify discipline, the commit-gate contract, and the\nfail-closed guarantees from ADR-0009/0010 are unchanged — only the mechanism is.\nSupersedes ADR-0009 and ADR-0010.\n\n## Alternatives considered\n\n- **Keep the workflows, drop only the code graph**: rejected — the parallel\n  lanes were the larger waste; graph removal alone leaves ~1.1M-token runs.\n- **Keep code graph for future scale**: rejected — it can be reintroduced from\n  git history if the codebase grows enough to make exploration dominate; carrying\n  a proven-net-negative feature speculatively violates \"don't over-engineer\".\n- **Fold both into the parent session (no dedicated agent)**: rejected — the\n  fresh, implementation-blind context is the bias check; a pinned agent preserves\n  it while keeping child token cost out of the parent's context.\n- **A `general-purpose` agent carrying the procedure inline in the dispatch\n  prompt**: rejected — an inline prompt can be varied or ignored per dispatch. A\n  named agent (`.claude/agents/*.md`) with a preloaded skill pins behavior in the\n  system prompt, reuses the existing `code-reviewer` stamp hook, and versions the\n  procedure in one file.\n\n## Consequences\n\n- Review cost drops to the agent itself (finder) + one verifier child = 2 agents\n  per run, for both review-diff and verify-spec.\n- `code-reviewer` gains the `Agent` tool (to dispatch its verifier child) and the\n  `review-diff` skill preload; `spec-verifier` is a new agent with the\n  `verify-spec` skill preload. The verifier children are `general-purpose`,\n  pinned by the preloaded skill's dispatch prompt.\n- Deleted: `scripts/build-graph.ts` (+ test), `.claude/code-graph.json`, the\n  `graph` npm script, `.gitattributes` graph rule, `.claude/workflows/`, and the\n  companion code-graph design spec + plan under `docs/superpowers/`.\n  `pre-commit-guard.sh` keeps only the gate check (no graph regeneration).\n- The `PreToolUse(Workflow)` stamp-clear (`pre-workflow-clear-review-stamp.sh`)\n  is replaced by `pre-agent-review-clear.sh` on `PreToolUse(Agent)` scoped to\n  `subagent_type == code-reviewer` (skipping sidechains). This keeps the gate\n  symmetric — dispatching `code-reviewer` clears the stamp, its completion\n  recreates it — so ADR-0009's \"cleared at the next review launch\" guarantee is\n  preserved despite the mechanism change: a stale stamp from a prior cycle cannot\n  survive a review that errors, times out, or is interrupted before\n  `post-agent-review-stamp.sh` fires. (The `aegis_compile_context` clear remains\n  as the new-cycle reset.)\n- The skill dispatch prompts are load-bearing for every commit; changes go\n  through empirical tuning (ADR-0006 consequence carries over).\n- LLM-driven dedup is non-deterministic, an accepted tradeoff: the old JS dedup\n  was also lossy (keyed on file:line, merging distinct same-line defects).\n",
+      "content_hash": "849ca94a1015ab7cf363f07e739de0ed18d0579e67d20931ab4b18836009a757",
+      "ownership": "file-anchored",
+      "template_origin": null,
+      "source_path": "docs/adr/0011-nested-subagent-review-and-verification.md",
+      "source_refs_json": null
+    },
+    {
+      "doc_id": "adr-0012",
+      "title": "Parent-Centric Implementation",
+      "kind": "reference",
+      "content": "# 0012. The parent session implements directly; delegation is decided by context impact\n\n- Status: accepted\n- Date: 2026-07-09\n\n> Note: AGENTS.md, `start-workflow`, and `docs/agent-workflow.md` referenced this\n> decision as \"ADR-0013\" before it was written down. The number is 0012 — the\n> sequence has no gaps (see `docs/adr/README.md` numbering rules).\n\n## Context\n\nADR-0003 delegated all ticket-granularity implementation to subagents: the\nparent session briefed, dispatched, reviewed, and committed, while\n`general-purpose` (sonnet) subagents did the editing. The rationale was context\nprotection (implementation noise fills the parent's window) and cost (most\nedits don't need the parent's model).\n\nOperating that policy surfaced costs the ADR did not anticipate:\n\n- **Briefing overhead dominates small-to-medium tasks.** A self-contained\n  dispatch prompt (goal, file paths, rules, acceptance criteria) often costs\n  more tokens than the edit itself, and the parent re-reads the diff afterwards\n  anyway because summaries lose information.\n- **Round-trips serialize naturally interactive work.** Fixing review findings,\n  integrating dispatched units, and follow-up corrections all bounce between\n  parent and worker with no context carried over.\n- **The per-edit lint hook and the review gate moved the quality argument.**\n  Quality is enforced mechanically (hooks) and by a fresh-context reviewer\n  (ADR-0011), not by which session typed the edit.\n\nMeanwhile the real context-bloat culprits are bulk reads and log digging —\nexploration, not implementation.\n\n## Decision\n\n**The parent session implements directly by default.** Delegation is decided by\n**context impact, not task size**:\n\n- **Parent edits directly**: normal implementation, fixes, integration, and\n  post-review follow-ups — whenever the scope is understood.\n- **Explore / research subagents**: bulk file reads, log digging, cross-cutting\n  investigation whose raw output the parent won't reference again — only the\n  summary should enter the parent's context.\n- **Parallel implementation subagents**: multiple independent units with no\n  shared files and no output dependency. Dependent units run sequentially — or\n  stay in the parent. Implementation dispatches run foreground (synchronous).\n  *(Amended 2026-07-12: Claude Code 2.1.198 made background execution the\n  platform default for subagents; the intent of \"foreground\" here is the\n  ordering constraint — the parent must wait for a dispatch's completion and\n  integrate its result before building on it — not the literal execution\n  mode. AGENTS.md and `start-workflow` now state it that way.)*\n\nSupersedes ADR-0003. The model-selection table and delegation criteria are\ncodified in AGENTS.md (\"Delegation\", \"Model selection\"); `start-workflow`\nstep 5 follows this decision.\n\n## Alternatives considered\n\n- **Keep ADR-0003 (always dispatch ticket work)**: rejected — briefing +\n  summary-loss + round-trip costs exceed the context saved on most tasks, and\n  the quality gates no longer depend on dispatch.\n- **Never delegate**: rejected — exploration genuinely poisons the parent's\n  context with raw output, and independent parallel units genuinely gain\n  wall-clock time from fan-out.\n- **Delegate by task size (small = parent, large = subagent)**: rejected — size\n  is a poor proxy. A large mechanical edit is fine in the parent; a small\n  investigation that reads 40 files is not.\n\n## Consequences\n\n- Parent context grows faster on implementation-heavy tasks; the mitigation is\n  delegating *exploration*, which is where the bulk of avoidable tokens live.\n- Review independence matters more: the `code-reviewer` agent (ADR-0011) is now\n  the only fresh-context check on parent-written code. Its gate must stay\n  mechanically enforced.\n- Dispatch briefings, when they do happen, must remain self-contained — nothing\n  about this decision changes subagent isolation.\n- The per-edit lint hook applies to parent edits, so quality feedback stays\n  continuous even without a dispatched worker.\n",
+      "content_hash": "151f77c8dff43558ddbc9895e088730b41bc52cd18430ef3b47a6d0013a93f69",
+      "ownership": "file-anchored",
+      "template_origin": null,
+      "source_path": "docs/adr/0012-parent-centric-implementation.md",
+      "source_refs_json": null
+    },
+    {
+      "doc_id": "adr-0013",
+      "title": "Deterministic Enforcement Gates",
+      "kind": "reference",
+      "content": "# 0013. Enforcement gates are deterministic artifacts, not transcript greps\n\n- Status: accepted\n- Date: 2026-07-09\n\n## Context\n\nAn audit (2026-07-09) found the enforcement layer structurally unreliable:\n\n1. **The Aegis dispatch guard was self-defeating.** `pre-agent-aegis-guard.sh`\n   grepped the session transcript for the literal string\n   `aegis_compile_context`. That string appears in the guard's own block\n   message, in the `UserPromptSubmit` reminder, and in ordinary agent prose —\n   so after the first prompt the guard always passed, whether or not the tool\n   was called. Conversely, in environments where the Aegis MCP server is\n   unavailable (e.g. remote containers), it blocked legitimate dispatches with\n   no escape hatch.\n2. **The review stamp certified nothing about the committed diff.** The stamp\n   was created when `code-reviewer` completed and survived any subsequent edit,\n   so the commit gate proved only \"a review happened at some point\". ADR-0009\n   explicitly rejected binding the stamp to the diff because a re-review cost\n   5–7 finder agents; ADR-0011 dropped a review to 2 agents, which removes that\n   premise.\n3. **Gates degraded silently per machine.** `similarity-ts` was skipped with\n   `|| true`, plugin-provided skills were assumed present, and nothing told the\n   agent (or user) which gates were actually active in a given session.\n4. **The `.env` deny was bypassable.** `Read`/`Write`/`Edit` of `.env*` were\n   denied (ADR-0004), but `Bash(cat:*)`, `grep`, `head`, `tail` were allowed —\n   `cat .env` walked straight through the boundary ADR-0004 claims to draw.\n\n## Decision\n\nEvery gate keys on a **deterministic artifact created or destroyed by hooks**,\nnever on transcript content, and every gate states its degraded mode.\n\n- **Aegis gate**: `PostToolUse(aegis_compile_context)` creates\n  `.claude/.aegis-stamp`; `UserPromptSubmit` clears it (per-prompt freshness);\n  `PreToolUse(Agent)` requires it (same agent-type exemptions as before). If\n  the Aegis MCP tools are genuinely unavailable, the agent writes\n  `.claude/.aegis-unavailable` with a one-line reason; the guard then admits\n  dispatches — an explicit, auditable degrade instead of a hard wall.\n- **Review gate**: `PostToolUse(Edit|Write|...)` deletes `.claude/.review-stamp`\n  alongside the existing clears (review launch, new Aegis cycle). Any edit\n  after a review therefore requires a re-review before committing. This amends\n  the ADR-0009 consequence (\"deliberately NOT bound to the diff\") — affordable\n  now that a review costs 2 agents. Commit *splitting* still works: committing\n  does not edit files, so a multi-commit sequence after one review passes.\n- **Environment check**: a `SessionStart` hook reports which optional gate\n  dependencies are missing (e.g. `similarity-ts`) so degraded sessions are\n  visible instead of silent.\n- **`.env` protection**: a `PreToolUse(Bash)` guard blocks any command\n  referencing `.env` / `.env.local` / `.env.development` / `.env.production`\n  (`.env*.example` stays readable). This amends ADR-0004: `permissions.deny`\n  remains the declared boundary for tool-level access, but Bash string-prefix\n  matching cannot express \"any command touching a file\", so the hook carries\n  that part of the boundary.\n\n## Alternatives considered\n\n- **Keep transcript grep but tighten the pattern**: rejected — any marker that\n  must appear in the transcript can also appear in prose about the marker;\n  the approach is unfixable by pattern choice.\n- **Warn (not block) on post-review edits**: rejected — a warning the agent may\n  ignore is not a gate; the gate's value is that it cannot be talked past.\n- **Hash the diff into the stamp instead of clearing on edit**: rejected —\n  `git diff HEAD` changes as multi-commit splits progress, breaking the\n  one-commit-one-purpose discipline; edit-triggered clearing has the same\n  honesty with none of the hash-canonicalization edge cases.\n- **Auto-detect Aegis MCP availability from shell**: rejected — hooks cannot\n  see the session's MCP tool table; a self-declared, auditable marker is the\n  most honest signal available.\n\n## Consequences\n\n- Fixing review findings now mechanically requires a re-review (2 agents).\n- The `.aegis-unavailable` marker is an honesty valve; abuse is visible in the\n  worktree and in review.\n- Gate scripts stay dumb (file existence checks), so their failure modes are\n  enumerable; the complexity lives in when artifacts are created/cleared.\n",
+      "content_hash": "546abb3910f138e54dc6d397257af25184dd7fe53d39b9a0f6cc35d00499d1e0",
+      "ownership": "file-anchored",
+      "template_origin": null,
+      "source_path": "docs/adr/0013-deterministic-enforcement-gates.md",
+      "source_refs_json": null
+    },
+    {
+      "doc_id": "adr-0014",
+      "title": "Measurement First Model Continuity",
+      "kind": "reference",
+      "content": "# 0014. Golden evals govern the review pipeline; delta re-review mode; on-demand repo audit\n\n- Status: accepted\n- Date: 2026-07-10\n\n## Context\n\nTwo pressures surfaced together (design:\n`docs/superpowers/specs/2026-07-10-model-quality-continuity-design.md`):\n\n1. **Model continuity.** The quality *enforcement* stack (deterministic gates\n   ADR-0013, pinned review agents ADR-0011, Aegis compilation) is\n   model-independent, but the *judgment* of the strongest available model\n   (currently Fable) — design decisions, investigation playbooks — dies with\n   each session unless it happens to land in an ADR. Nothing measured whether\n   a weaker parent (e.g. Opus) plus the existing scaffolding actually holds\n   quality, and nothing systematically converts best-model judgment into\n   executable artifacts.\n2. **Review pipeline waste.** ADR-0013's stamp-clearing forces a re-review\n   after every post-review fix. Session measurements (2026-07-10) showed\n   re-reviews re-reading the full diff and re-running whole-project\n   verification the parent had already run (~40–105k tokens, 1–5 min per\n   run).\n\nThe cycle of shadcn/improve (\"audit with your best model, execute with a\ncheap one; plans are portable Markdown\") addresses (1), but importing it\nas-is would duplicate Aegis (repo-convention mapping, design-doc ingestion)\nand introduce a third artifact format beside ADRs and\n`docs/superpowers/specs/` plans.\n\n## Decision\n\n1. **Golden evals govern the review pipeline.** Seeded-defect fixtures +\n   expected findings live in `docs/superpowers/evals/review-diff/` (patch\n   files with self-declared base; run protocol and scoring in its README).\n   A model-tier change to `code-reviewer` or `review-verifier`, or any\n   load-bearing edit to `review-diff`, requires a scored eval run recorded in\n   `results/` —\n   measurement replaces judgment calls (superseding ADR-0011's ad-hoc\n   empirical-tuning obligation for that skill). `verify-spec` /\n   `spec-verifier` keep the ADR-0011 empirical-tuning obligation until a\n   verify-spec eval exists — recorded debt, not an implicit waiver.\n   *(Resolved 2026-07-12: the verify-spec eval now exists with\n   tier-discriminating fixtures sx-01..03 — see\n   `docs/superpowers/evals/verify-spec/` — so the spec pipeline is under the\n   same scored-eval regime; the first tier comparison kept both spec agents\n   on opus.)*\n2. **`review-diff` gains a delta re-review mode** (amends the ADR-0011\n   procedure; stamp semantics unchanged). A re-dispatch in the same task\n   cycle passes the prior report verbatim plus a delta description; the\n   reviewer scopes to the delta, skips whole-project verification re-runs,\n   keeps the verifier child mandatory, and **fails closed to full mode** on\n   any precondition break. The verifier child must be awaited in the\n   foreground. Measured effect (2026-07-10): quality 4/4 with 0 FP\n   preserved; −62% tool uses and no whole-project verification re-runs on\n   the smallest possible diff (the −13% token delta sits within observed\n   run-to-run variance; the wall-time comparison against the pre-mandate\n   baseline is invalid — see the results file). Savings scale with the\n   unchanged portion of the diff. Known trade: delta mode does not\n   re-examine previously-clean hunks of the same diff, so a fix that breaks\n   reviewed-but-clean code is invisible to it — use full mode after major\n   rework.\n3. **On-demand `repo-audit` skill** converts best-model judgment into the\n   existing rails only: audit lanes cover what gates cannot catch\n   (architecture drift, security posture, dependency strategy, docs/DX);\n   knowledge outputs become ADR/AGENTS.md edits shipped through aegis-share;\n   work outputs become `docs/superpowers/specs/` plans. No third format, not\n   scheduled, not CI-run. AGENTS.md gains a \"Model continuity (non-Fable\n   parent)\" section: pinned procedures are not re-derived, design judgment\n   escalates to the strongest available model, weaker parents verify more.\n\n## Alternatives considered\n\n- **Adopt shadcn/improve as-is**: rejected — its repo-mapping and doc\n  ingestion duplicate Aegis, and its plan layout adds a third artifact\n  system to keep consistent.\n- **No evals (keep tuning by judgment)**: rejected — model-tier and\n  procedure changes stay vibes-based, exactly what made ADR-0011's\n  benchmark necessary in the first place.\n- **Build-first ordering (ship delta mode, evaluate later)**: rejected —\n  ADR-0011's code-graph lesson: features justified by reasoning alone can\n  be measured net-negative. The eval was built first and the baseline\n  recorded before the mode landed.\n\n## Consequences\n\n- Re-reviews after fixes become cheap enough that ADR-0013's strictness\n  stays affordable; the delta fixture keeps this claim testable.\n- Eval fixtures rot as the codebase evolves; the run protocol requires\n  regenerating or retiring stale fixtures in the same run. The current set\n  is saturated (5/5 baseline) — it detects regression, not headroom; add\n  harder fixtures before using it to discriminate between strong models.\n- `repo-audit` earns its keep or leaves: two consecutive audits with no\n  actionable output trigger a deletion proposal (retention rule to be\n  encoded in the skill when it is created — decision 3 is accepted but not\n  yet implemented at the time of writing).\n- Wall-time comparisons against the pre-2026-07-10 baseline are skewed by\n  the foreground-wait mandate; the re-run columns in\n  `docs/superpowers/evals/review-diff/results/2026-07-10-delta-mode.md`\n  are the cost reference.\n",
+      "content_hash": "38f3a23e33b16359883c6bdfca15d336eae15f439016a221cd5ff8ba1ac3e766",
+      "ownership": "file-anchored",
+      "template_origin": null,
+      "source_path": "docs/adr/0014-measurement-first-model-continuity.md",
+      "source_refs_json": null
+    },
+    {
+      "doc_id": "adr-0015",
+      "title": "Flat Review Pipeline",
+      "kind": "reference",
+      "content": "# 0015. Review and spec verification are flat finder → verifier pipelines (verifier unnested)\n\n- Status: accepted\n- Date: 2026-07-10\n\n## Context\n\nADR-0011 made the pre-commit review a single dispatched `code-reviewer` agent\nthat (a) finds candidates and (b) dispatches a nested verifier child to\nrefute them, with the gate keyed to the `code-reviewer` agent's completion.\nThe find ≠ verify independence (a fresh, finding-blind context refutes) was\nthe load-bearing property, and it repeatedly earned its keep: across this\nproject's review history the verifier refuted ~25–30% of candidates,\nincluding finder claims traced back to design docs and the parent's own\nmis-labelled measurements.\n\nBut the *implementation* — a nested child at depth 2 — has one fragile joint:\nthe middle agent (`code-reviewer`) must wait on its own sub-agent across an\nasync boundary. On 2026-07-10 this failed twice: the middle agent ended its\nturn while the child ran, and the child's verdicts became unretrievable. A\nband-aid (verdict written to a transport file + a foreground-wait mandate)\nwas added, and then failed a third time — a review sat stuck ~40 minutes\nwaiting on a child that never reported, producing no verdicts and no gate\nstamp. The fragility is structural: \"an agent waiting on its own child\" is\nexactly the link the harness does not make reliable, whereas a parent waiting\non a depth-1 dispatch has been 100% reliable in the same session.\n\n## Decision\n\nUnnest the verifier. The review is a **flat two-agent pipeline the parent\norchestrates**, both agents depth-1:\n\n1. **`code-reviewer`** (finder) — reads the diff, returns candidate findings\n   as JSON. It does not verify, does not dispatch anything, does not stamp.\n   Its `Agent` tool is removed (least privilege).\n2. **`review-verifier`** (new agent) — receives the candidate JSON, refutes\n   each by reading the real code in a context that never saw the find pass,\n   returns survivors. **Its completion stamps the commit gate.**\n\nThe parent dispatches finder then verifier in sequence, passing the candidate\nlist between them, and waits on each directly. The gate hooks move\naccordingly:\n\n- `pre-agent-review-clear.sh`: on `code-reviewer` dispatch (cycle start) clears\n  both `.review-stamp` and the finder marker `.finder-done`.\n- `post-agent-review-stamp.sh`: on `code-reviewer` completion writes\n  `.finder-done` containing a hash of the diff the finder saw; on\n  `review-verifier` completion stamps `.review-stamp` **only if** `.finder-done`\n  exists AND its hash equals the current diff hash, then consumes it.\n- `pre-agent-aegis-guard.sh`: `review-verifier` added to the exempt list.\n\nThe diff-hash marker is what keeps the gate deterministic (ADR-0013) after\nunnesting: the stamp proves a finder ran this cycle AND the verifier saw the\nsame diff (no edit between the two passes). Dispatching `review-verifier` alone,\nor editing files mid-window, cannot produce a stamp.\n\nfind ≠ verify independence is preserved — finder and verifier are still\nseparate fresh contexts, and the parent (which is not blind) only routes the\nstructured candidate list; it does no finding or verifying itself. The\n`review-diff` skill remains the single pinned procedure, preloaded into both\nagents. Supersedes ADR-0011's *mechanism* (nested orchestrator); its\nfind→verify discipline, commit-gate contract, and fail-closed guarantees are\nunchanged. The band-aid transport file added earlier the same day is removed\nfrom `review-diff` (the flat pipeline makes it unnecessary).\n\nThe same flattening is applied to `verify-spec`: `spec-verifier` becomes the\nhunter (formalize + hunt → machine + candidate counterexamples) and a new\n`spec-checker` agent replays each candidate in a fresh, hunt-blind context.\nSame rationale, no gate (design-time), so no stamp hooks are involved — only\n`pre-agent-aegis-guard.sh` gains `spec-checker` in its exempt list. The\nnested-child transport-file band-aid is removed from `verify-spec` too.\n\n## Alternatives considered\n\n- **Keep nesting + rely on the transport-file band-aid**: rejected — it\n  failed a third time (the 40-minute stuck review). The band-aid addresses\n  verdict *loss* but not the middle agent *hanging* on its child.\n- **Fold find and verify into one agent (self-verify)**: rejected — destroys\n  the independence that empirically refutes ~25–30% of candidates.\n- **Fold both into the parent session (parent finds and verifies inline)**:\n  rejected for the ADR-0011 reason — the parent is not implementation-blind;\n  the bias check requires fresh contexts. Parent *orchestration* of two fresh\n  agents is different and acceptable.\n\n## Consequences\n\n- The fragile depth-2 wait is gone; both dispatches are depth-1 the parent\n  waits on directly.\n- Unnesting made `review-verifier` an independently-dispatchable named agent,\n  which would have let a verifier completion stamp the gate without a finder\n  having run (and left mid-window edits invisible). The `.finder-done`\n  diff-hash marker closes both: the stamp is provably downstream of a finder\n  pass on the current diff. This restores the ADR-0011 property that a stamp\n  cannot exist without a completed find pass.\n- The parent's context now holds the candidate list and the verdicts (a few\n  KB) — the cost ADR-0011 avoided by nesting. Negligible at this project's\n  diff sizes; revisit if reviews of very large diffs make it material.\n- Two agents per review instead of one-plus-child — same agent count, flatter\n  shape.\n- A model-tier change to `code-reviewer` or `review-verifier`, or a\n  load-bearing edit to `review-diff`, requires a scored eval run\n  (`docs/superpowers/evals/review-diff/`, ADR-0014). This change itself is\n  validated that way.\n- `verify-spec` is flattened the same way (`spec-verifier` hunter +\n  `spec-checker`), resolving the debt this ADR would otherwise have left. A\n  seeded-counterexample fixture under `docs/superpowers/evals/verify-spec/`\n  exercises the flat spec pipeline end-to-end.\n",
+      "content_hash": "dbe26beac7e8d2cfce4e5e22ea100dff3d87260635b9c499c98291089b8c6772",
+      "ownership": "file-anchored",
+      "template_origin": null,
+      "source_path": "docs/adr/0015-flat-review-pipeline.md",
+      "source_refs_json": null
+    }
+  ],
+  "edges": [
+    {
+      "edge_id": "17202a81-b806-41de-8c8c-cd2c68b9b5a4",
+      "source_type": "command",
+      "source_value": "scaffold",
+      "target_doc_id": "adr-0012",
+      "edge_type": "command_requires",
+      "priority": -1,
+      "specificity": 0
+    },
+    {
+      "edge_id": "353aec4f-f43d-4b95-ad1f-92c4cf304941",
+      "source_type": "command",
+      "source_value": "scaffold",
+      "target_doc_id": "adr-0008",
+      "edge_type": "command_requires",
+      "priority": 100,
+      "specificity": 0
+    },
+    {
+      "edge_id": "374528df-0683-454a-9177-21555bdf8f27",
+      "source_type": "path",
+      "source_value": ".claude/skills/review-diff/**",
+      "target_doc_id": "adr-0014",
+      "edge_type": "path_requires",
+      "priority": -1,
+      "specificity": 0
+    },
+    {
+      "edge_id": "4826892c-ea9b-46dc-95cb-f1f8f03a0f7d",
+      "source_type": "path",
+      "source_value": "docs/superpowers/evals/**",
+      "target_doc_id": "adr-0014",
+      "edge_type": "path_requires",
+      "priority": -1,
+      "specificity": 0
+    },
+    {
+      "edge_id": "598db62b-2580-4184-95ea-eb8522064aac",
+      "source_type": "command",
+      "source_value": "scaffold",
+      "target_doc_id": "adr-0010",
+      "edge_type": "command_requires",
+      "priority": -1,
+      "specificity": 0
+    },
+    {
+      "edge_id": "61514188-dd0d-47e9-bbcb-b4efcb5eb6a6",
+      "source_type": "path",
+      "source_value": "specs/**",
+      "target_doc_id": "adr-0010",
+      "edge_type": "path_requires",
+      "priority": -1,
+      "specificity": 0
+    },
+    {
+      "edge_id": "6489251a-9c13-400d-ae76-507d8fc62986",
+      "source_type": "path",
+      "source_value": ".claude/hooks/**",
+      "target_doc_id": "adr-0009",
+      "edge_type": "path_requires",
+      "priority": -1,
+      "specificity": 0
+    },
+    {
+      "edge_id": "6f42e10e-ad42-43dc-9e97-940e3317b368",
+      "source_type": "command",
+      "source_value": "refactor",
+      "target_doc_id": "adr-0008",
+      "edge_type": "command_requires",
+      "priority": 100,
+      "specificity": 0
+    },
+    {
+      "edge_id": "708dda36-b4d2-40fc-ba5b-50388a27ab6a",
+      "source_type": "command",
+      "source_value": "scaffold",
+      "target_doc_id": "adr-0006",
+      "edge_type": "command_requires",
+      "priority": -1,
+      "specificity": 0
+    },
+    {
+      "edge_id": "7da347a2-f629-4ab2-b583-c9f0bf7fe8ba",
+      "source_type": "path",
+      "source_value": ".claude/agents/**",
+      "target_doc_id": "adr-0015",
+      "edge_type": "path_requires",
+      "priority": -1,
+      "specificity": 0
+    },
+    {
+      "edge_id": "8be7feb0-54ac-46f5-b468-b5610f963488",
+      "source_type": "path",
+      "source_value": "wrangler.toml",
+      "target_doc_id": "adr-0005",
+      "edge_type": "path_requires",
+      "priority": -1,
+      "specificity": 0
+    },
+    {
+      "edge_id": "906b2023-0ae5-491a-9057-5888c48d21f1",
+      "source_type": "path",
+      "source_value": ".claude/agents/**",
+      "target_doc_id": "adr-0014",
+      "edge_type": "path_requires",
+      "priority": -1,
+      "specificity": 0
+    },
+    {
+      "edge_id": "934ee0bc-ff0a-43c3-bc8d-969d47a9257f",
+      "source_type": "path",
+      "source_value": ".claude/skills/review-diff/**",
+      "target_doc_id": "adr-0015",
+      "edge_type": "path_requires",
+      "priority": -1,
+      "specificity": 0
+    },
+    {
+      "edge_id": "9840a836-6b3e-4ca5-bf3d-bb2b63fdcf65",
+      "source_type": "command",
+      "source_value": "scaffold",
+      "target_doc_id": "adr-0003",
+      "edge_type": "command_requires",
+      "priority": -1,
+      "specificity": 0
+    },
+    {
+      "edge_id": "9b3fe31e-6a7d-48c9-b244-8fa0f81b13c0",
+      "source_type": "command",
+      "source_value": "review",
+      "target_doc_id": "adr-0009",
+      "edge_type": "command_requires",
+      "priority": 100,
+      "specificity": 0
+    },
+    {
+      "edge_id": "a16abcd6-d5e0-4dcb-8d44-3927bbeb466f",
+      "source_type": "path",
+      "source_value": ".claude/skills/review-diff/**",
+      "target_doc_id": "adr-0011",
+      "edge_type": "path_requires",
+      "priority": -1,
+      "specificity": 0
+    },
+    {
+      "edge_id": "adb8f414-b902-45cc-a695-3bc31a8c444e",
+      "source_type": "command",
+      "source_value": "refactor",
+      "target_doc_id": "adr-0012",
+      "edge_type": "command_requires",
+      "priority": -1,
+      "specificity": 0
+    },
+    {
+      "edge_id": "affd6605-13ce-42a1-a2a6-b7afe442bb89",
+      "source_type": "command",
+      "source_value": "refactor",
+      "target_doc_id": "adr-0003",
+      "edge_type": "command_requires",
+      "priority": -1,
+      "specificity": 0
+    },
+    {
+      "edge_id": "b26df57c-ebca-4ca7-87bb-4fcb3fca9b76",
+      "source_type": "path",
+      "source_value": ".claude/hooks/**",
+      "target_doc_id": "adr-0013",
+      "edge_type": "path_requires",
+      "priority": -1,
+      "specificity": 0
+    },
+    {
+      "edge_id": "b95e86e1-b34b-4caa-bab4-033b3a4531ff",
+      "source_type": "path",
+      "source_value": ".claude/skills/verify-spec/**",
+      "target_doc_id": "adr-0011",
+      "edge_type": "path_requires",
+      "priority": -1,
+      "specificity": 0
+    },
+    {
+      "edge_id": "bb6905ec-c408-4892-bfc6-06f0a8bdc310",
+      "source_type": "command",
+      "source_value": "review",
+      "target_doc_id": "adr-0015",
+      "edge_type": "command_requires",
+      "priority": -1,
+      "specificity": 0
+    },
+    {
+      "edge_id": "bdad5450-55ab-42b6-adf8-48e55b400a85",
+      "source_type": "path",
+      "source_value": ".claude/skills/repo-audit/**",
+      "target_doc_id": "adr-0014",
+      "edge_type": "path_requires",
+      "priority": -1,
+      "specificity": 0
+    },
+    {
+      "edge_id": "be06b124-b411-4126-b0f9-4c5f20a1bc4c",
+      "source_type": "command",
+      "source_value": "refactor",
+      "target_doc_id": "adr-0006",
+      "edge_type": "command_requires",
+      "priority": -1,
+      "specificity": 0
+    },
+    {
+      "edge_id": "cc1dc403-beb1-4210-8bbb-de8cf10f21b7",
+      "source_type": "command",
+      "source_value": "review",
+      "target_doc_id": "adr-0008",
+      "edge_type": "command_requires",
+      "priority": 100,
+      "specificity": 0
+    },
+    {
+      "edge_id": "d49091c6-fbff-437c-9d05-1fa33a90c7d7",
+      "source_type": "command",
+      "source_value": "review",
+      "target_doc_id": "adr-0011",
+      "edge_type": "command_requires",
+      "priority": 100,
+      "specificity": 0
+    },
+    {
+      "edge_id": "d68106f7-d9e1-415b-b9ae-86e71ea865d7",
+      "source_type": "path",
+      "source_value": ".claude/settings.json",
+      "target_doc_id": "adr-0013",
+      "edge_type": "path_requires",
+      "priority": -1,
+      "specificity": 0
+    },
+    {
+      "edge_id": "de4c4d45-63fd-48a2-afc3-b25b3aae3628",
+      "source_type": "path",
+      "source_value": "src/**/*",
+      "target_doc_id": "adr-0007",
+      "edge_type": "path_requires",
+      "priority": -1,
+      "specificity": 0
+    },
+    {
+      "edge_id": "e88cc770-b1d1-42a6-80a0-fbdb96622d6f",
+      "source_type": "path",
+      "source_value": ".claude/hooks/**",
+      "target_doc_id": "adr-0011",
+      "edge_type": "path_requires",
+      "priority": -1,
+      "specificity": 0
+    },
+    {
+      "edge_id": "ef2671ae-5eda-4a4e-af15-8db9e802bd90",
+      "source_type": "path",
+      "source_value": "package.json",
+      "target_doc_id": "adr-0002",
+      "edge_type": "path_requires",
+      "priority": -1,
+      "specificity": 0
+    },
+    {
+      "edge_id": "f8c80238-a986-4f8b-90c3-6c38ecd2e610",
+      "source_type": "command",
+      "source_value": "review",
+      "target_doc_id": "adr-0014",
+      "edge_type": "command_requires",
+      "priority": -1,
+      "specificity": 0
+    },
+    {
+      "edge_id": "f95a502b-20d7-4073-b4ca-53885bbf933b",
+      "source_type": "path",
+      "source_value": ".claude/agents/**",
+      "target_doc_id": "adr-0011",
+      "edge_type": "path_requires",
+      "priority": -1,
+      "specificity": 0
+    },
+    {
+      "edge_id": "fbcdd272-75b0-4d15-bc1c-ae920e6ab8ad",
+      "source_type": "path",
+      "source_value": ".claude/hooks/**",
+      "target_doc_id": "adr-0015",
+      "edge_type": "path_requires",
+      "priority": -1,
+      "specificity": 0
+    },
+    {
+      "edge_id": "fde58d18-83c2-4964-9051-1421337d76e3",
+      "source_type": "path",
+      "source_value": "src/**/*",
+      "target_doc_id": "adr-0004",
+      "edge_type": "path_requires",
+      "priority": -1,
+      "specificity": 0
+    },
+    {
+      "edge_id": "ff76afcf-f1f6-42d4-a52b-1c29373abfa9",
+      "source_type": "path",
+      "source_value": "src/**/*",
+      "target_doc_id": "adr-0001",
+      "edge_type": "path_requires",
+      "priority": -1,
+      "specificity": 0
+    }
+  ],
+  "layer_rules": [],
+  "tag_mappings": []
+}

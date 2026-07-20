@@ -1,0 +1,142 @@
+[
+  {
+    "edge_id": "374528df-0683-454a-9177-21555bdf8f27",
+    "source_value": ".claude/skills/review-diff/**",
+    "target_doc_id": "adr-0014",
+    "priority": -1,
+    "specificity": 0
+  },
+  {
+    "edge_id": "4826892c-ea9b-46dc-95cb-f1f8f03a0f7d",
+    "source_value": "docs/superpowers/evals/**",
+    "target_doc_id": "adr-0014",
+    "priority": -1,
+    "specificity": 0
+  },
+  {
+    "edge_id": "61514188-dd0d-47e9-bbcb-b4efcb5eb6a6",
+    "source_value": "specs/**",
+    "target_doc_id": "adr-0010",
+    "priority": -1,
+    "specificity": 0
+  },
+  {
+    "edge_id": "6489251a-9c13-400d-ae76-507d8fc62986",
+    "source_value": ".claude/hooks/**",
+    "target_doc_id": "adr-0009",
+    "priority": -1,
+    "specificity": 0
+  },
+  {
+    "edge_id": "7da347a2-f629-4ab2-b583-c9f0bf7fe8ba",
+    "source_value": ".claude/agents/**",
+    "target_doc_id": "adr-0015",
+    "priority": -1,
+    "specificity": 0
+  },
+  {
+    "edge_id": "8be7feb0-54ac-46f5-b468-b5610f963488",
+    "source_value": "wrangler.toml",
+    "target_doc_id": "adr-0005",
+    "priority": -1,
+    "specificity": 0
+  },
+  {
+    "edge_id": "906b2023-0ae5-491a-9057-5888c48d21f1",
+    "source_value": ".claude/agents/**",
+    "target_doc_id": "adr-0014",
+    "priority": -1,
+    "specificity": 0
+  },
+  {
+    "edge_id": "934ee0bc-ff0a-43c3-bc8d-969d47a9257f",
+    "source_value": ".claude/skills/review-diff/**",
+    "target_doc_id": "adr-0015",
+    "priority": -1,
+    "specificity": 0
+  },
+  {
+    "edge_id": "a16abcd6-d5e0-4dcb-8d44-3927bbeb466f",
+    "source_value": ".claude/skills/review-diff/**",
+    "target_doc_id": "adr-0011",
+    "priority": -1,
+    "specificity": 0
+  },
+  {
+    "edge_id": "b26df57c-ebca-4ca7-87bb-4fcb3fca9b76",
+    "source_value": ".claude/hooks/**",
+    "target_doc_id": "adr-0013",
+    "priority": -1,
+    "specificity": 0
+  },
+  {
+    "edge_id": "b95e86e1-b34b-4caa-bab4-033b3a4531ff",
+    "source_value": ".claude/skills/verify-spec/**",
+    "target_doc_id": "adr-0011",
+    "priority": -1,
+    "specificity": 0
+  },
+  {
+    "edge_id": "bdad5450-55ab-42b6-adf8-48e55b400a85",
+    "source_value": ".claude/skills/repo-audit/**",
+    "target_doc_id": "adr-0014",
+    "priority": -1,
+    "specificity": 0
+  },
+  {
+    "edge_id": "d68106f7-d9e1-415b-b9ae-86e71ea865d7",
+    "source_value": ".claude/settings.json",
+    "target_doc_id": "adr-0013",
+    "priority": -1,
+    "specificity": 0
+  },
+  {
+    "edge_id": "de4c4d45-63fd-48a2-afc3-b25b3aae3628",
+    "source_value": "src/**/*",
+    "target_doc_id": "adr-0007",
+    "priority": -1,
+    "specificity": 0
+  },
+  {
+    "edge_id": "e88cc770-b1d1-42a6-80a0-fbdb96622d6f",
+    "source_value": ".claude/hooks/**",
+    "target_doc_id": "adr-0011",
+    "priority": -1,
+    "specificity": 0
+  },
+  {
+    "edge_id": "ef2671ae-5eda-4a4e-af15-8db9e802bd90",
+    "source_value": "package.json",
+    "target_doc_id": "adr-0002",
+    "priority": -1,
+    "specificity": 0
+  },
+  {
+    "edge_id": "f95a502b-20d7-4073-b4ca-53885bbf933b",
+    "source_value": ".claude/agents/**",
+    "target_doc_id": "adr-0011",
+    "priority": -1,
+    "specificity": 0
+  },
+  {
+    "edge_id": "fbcdd272-75b0-4d15-bc1c-ae920e6ab8ad",
+    "source_value": ".claude/hooks/**",
+    "target_doc_id": "adr-0015",
+    "priority": -1,
+    "specificity": 0
+  },
+  {
+    "edge_id": "fde58d18-83c2-4964-9051-1421337d76e3",
+    "source_value": "src/**/*",
+    "target_doc_id": "adr-0004",
+    "priority": -1,
+    "specificity": 0
+  },
+  {
+    "edge_id": "ff76afcf-f1f6-42d4-a52b-1c29373abfa9",
+    "source_value": "src/**/*",
+    "target_doc_id": "adr-0001",
+    "priority": -1,
+    "specificity": 0
+  }
+]
