@@ -46,6 +46,8 @@
   /* Deep print vermilion: AA-verified for 12px bold data text on kl-panel
      (5.56:1) and for kl-paper labels on a kl-red fill (4.80:1). */
   --color-kl-red: #c02e1a;
+  /* Negative-space tint — keep in step with render.ts's canvas rgba. */
+  --color-kl-red-tint: rgb(192 46 26 / 16%);
   --color-kl-blue: #2e5fb0;
   --color-kl-grey: #9a9c97;
   --color-kl-muted: #565750;

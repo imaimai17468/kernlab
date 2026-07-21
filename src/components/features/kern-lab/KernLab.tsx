@@ -1,11 +1,14 @@
 "use client";
 
+import { Link } from "@tanstack/react-router";
 import { useReducer } from "react";
 import { CanvasStage } from "./CanvasStage";
+import { ACCENT_LINK_CLASS, GITHUB_URL } from "./constants";
 import { ControlPanel } from "./ControlPanel";
 import type { ControlsPatch } from "./controls";
 import { controlsReducer, INITIAL_CONTROLS } from "./controls";
 import { ExportBar } from "./ExportBar";
+import { ExternalLink } from "./ExternalLink";
 import { injectFontsStylesheet, loadFont } from "./fontLoader";
 import { PairReadout } from "./PairReadout";
 import "./styles.css";
@@ -64,9 +67,15 @@ export function KernLab() {
           <PairReadout pairs={engine.pairs} mode={controls.mode} />
         </div>
 
-        <p className="mt-5 max-w-prose text-xs text-kl-muted">
-          各文字を字面(インク)単位で計測し、隣り合う字面のあいだのネガティブスペースの面積が均等に見えるよう左右間隔を最適化しています（A/Vのような字形は自動でつめられます）。上下左右の余白は字面の高さから比率で生成し光学中央に配置。SVGはWebフォントを参照するベクターです。エディタで「アウトライン化」すれば完全に自己完結したロゴになります。
-        </p>
+        <footer className="mt-5 flex flex-wrap items-baseline gap-x-5 gap-y-8 text-xs">
+          <p className="text-kl-muted">
+            字面（インク）の計測から文字間隔を自動算出するロゴ組版ツール。
+          </p>
+          <Link to="/how-it-works" className={ACCENT_LINK_CLASS}>
+            仕組みはこちら
+          </Link>
+          <ExternalLink href={GITHUB_URL}>GitHub</ExternalLink>
+        </footer>
       </div>
     </div>
   );

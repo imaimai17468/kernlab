@@ -8,6 +8,15 @@ export const INK = "#17181A";
 export const PAPER = "#E9EBE6";
 export const GREY = "#9A9C97";
 
+/** Source repository (footer link + how-it-works source references). */
+export const GITHUB_URL = "https://github.com/imaimai17468/kernlab";
+
+/** The one accent-link treatment, shared by every text link in the tool.
+ * kl-hit-area (styles.css) grows the touch target to 44px on coarse pointers
+ * via a pseudo-element, without inflating the visible line box. */
+export const ACCENT_LINK_CLASS =
+  "kl-hit-area inline-flex items-center text-kl-blue underline decoration-from-font underline-offset-4 transition-colors duration-150 ease-out hover:text-kl-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-kl-blue motion-reduce:transition-none";
+
 export const FONTS: readonly Font[] = [
   { name: "Anton", weights: [400], note: "極太コンデンス" },
   { name: "Bebas Neue", weights: [400], note: "コンデンス" },
