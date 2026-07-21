@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Corner } from "./Corner";
+import { Corner } from "@/components/shared/corner/Corner";
 
 type DiagramFrameProps = {
   caption: string;

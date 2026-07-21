@@ -1,6 +1,6 @@
 import type { ComponentPropsWithoutRef } from "react";
 import { cn } from "@/lib/utils";
-import { ACCENT_LINK_CLASS } from "./constants";
+import { ACCENT_LINK_CLASS } from "./accentLinkClass";
 
 type ExternalLinkProps = ComponentPropsWithoutRef<"a"> & {
   href: string;

@@ -2,14 +2,15 @@
 
 import { Link } from "@tanstack/react-router";
 import { useReducer } from "react";
+import { ACCENT_LINK_CLASS } from "@/components/shared/external-link/accentLinkClass";
+import { ExternalLink } from "@/components/shared/external-link/ExternalLink";
+import { GITHUB_URL } from "@/lib/site";
 import { CanvasStage } from "./CanvasStage";
-import { ACCENT_LINK_CLASS, GITHUB_URL } from "./constants";
-import { ControlPanel } from "./ControlPanel";
-import type { ControlsPatch } from "./controls";
-import { controlsReducer, INITIAL_CONTROLS } from "./controls";
+import { ControlPanel } from "./control-panel/ControlPanel";
+import type { ControlsPatch } from "./engine/controls";
+import { controlsReducer, INITIAL_CONTROLS } from "./engine/controls";
+import { injectFontsStylesheet, loadFont } from "./engine/fontLoader";
 import { ExportBar } from "./ExportBar";
-import { ExternalLink } from "./ExternalLink";
-import { injectFontsStylesheet, loadFont } from "./fontLoader";
 import { PairReadout } from "./PairReadout";
 import "./styles.css";
 import { useKernLab } from "./useKernLab";

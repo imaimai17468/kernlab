@@ -6,13 +6,13 @@ import {
   useRef,
   useSyncExternalStore,
 } from "react";
-import { MS, PAPER } from "./constants";
-import type { Controls } from "./controls";
-import { exportPNG, exportSVG } from "./export";
-import { isFontSettled, subscribeFonts } from "./fontLoader";
-import { computeLayout } from "./kerning";
-import { renderToContext } from "./render";
-import type { Pair } from "./types";
+import { MS, PAPER } from "./engine/constants";
+import type { Controls } from "./engine/controls";
+import { exportPNG, exportSVG } from "./engine/export";
+import { isFontSettled, subscribeFonts } from "./engine/fontLoader";
+import { computeLayout } from "./engine/kerning";
+import { renderToContext } from "./engine/render";
+import type { Pair } from "./engine/types";
 
 type UseKernLabResult = {
   canvasRef: RefObject<HTMLCanvasElement | null>;

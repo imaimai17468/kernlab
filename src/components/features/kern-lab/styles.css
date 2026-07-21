@@ -9,27 +9,6 @@
   min-height: 420px;
 }
 
-/*
- * 44px touch target for inline text links, expanded via a transparent
- * pseudo-element so the visible line box keeps its natural height even inside
- * prose (design rule: grow the hit area, not the element). Touch devices only.
- */
-.kl-hit-area {
-  position: relative;
-}
-
-@media (pointer: coarse) {
-  .kl-hit-area::before {
-    content: "";
-    position: absolute;
-    top: 50%;
-    left: -0.25rem;
-    right: -0.25rem;
-    height: 44px;
-    transform: translateY(-50%);
-  }
-}
-
 .kl-range {
   -webkit-appearance: none;
   appearance: none;

@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { HowItWorks } from "@/components/features/kern-lab/HowItWorks";
+import { HowItWorks } from "@/components/features/how-it-works/HowItWorks";
 
 export const Route = createFileRoute("/how-it-works")({
   head: () => ({

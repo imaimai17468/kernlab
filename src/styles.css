@@ -153,3 +153,26 @@
     line-height: 1.8;
   }
 }
+
+/*
+ * 44px touch target for inline text links (backs the shared ACCENT_LINK_CLASS
+ * in components/shared/external-link). Expanded via a transparent
+ * pseudo-element so the visible line box keeps its natural height even inside
+ * prose (design rule: grow the hit area, not the element). Touch devices only.
+ * Lives here globally because the class is used across features.
+ */
+.kl-hit-area {
+  position: relative;
+}
+
+@media (pointer: coarse) {
+  .kl-hit-area::before {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: -0.25rem;
+    right: -0.25rem;
+    height: 44px;
+    transform: translateY(-50%);
+  }
+}

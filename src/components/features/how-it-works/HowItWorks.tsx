@@ -1,8 +1,9 @@
 import { Link } from "@tanstack/react-router";
+import { ACCENT_LINK_CLASS } from "@/components/shared/external-link/accentLinkClass";
+import { ExternalLink } from "@/components/shared/external-link/ExternalLink";
+import { GITHUB_URL } from "@/lib/site";
 import { AreaDiagram } from "./AreaDiagram";
-import { ACCENT_LINK_CLASS, GITHUB_URL } from "./constants";
 import { DiagramFrame } from "./DiagramFrame";
-import { ExternalLink } from "./ExternalLink";
 import { FrameDiagram } from "./FrameDiagram";
 import { MeasureDiagram } from "./MeasureDiagram";
 import { SolveDiagram } from "./SolveDiagram";
@@ -61,7 +62,7 @@ export function HowItWorks() {
             <DiagramFrame caption="走査行ごとのインク端。字面ボックスの左右端からの距離が Lp / Rr">
               <MeasureDiagram />
             </DiagramFrame>
-            <SourceLink file="kerning.ts" note="の measureGlyph" />
+            <SourceLink file="engine/kerning.ts" note="の measureGlyph" />
           </section>
 
           <section className="flex flex-col gap-3">
@@ -74,7 +75,10 @@ export function HowItWorks() {
             <DiagramFrame caption="行ごとの白量（赤）。cap を超えるぶんは数えない">
               <AreaDiagram />
             </DiagramFrame>
-            <SourceLink file="render.ts" note="の renderToContext（可視化）" />
+            <SourceLink
+              file="engine/render.ts"
+              note="の renderToContext（可視化）"
+            />
           </section>
 
           <section className="flex flex-col gap-3">
@@ -88,7 +92,10 @@ export function HowItWorks() {
             <DiagramFrame caption="単調な平均白量と target の交点を lo / hi で挟み込む">
               <SolveDiagram />
             </DiagramFrame>
-            <SourceLink file="kerning.ts" note="の solveS / computeLayout" />
+            <SourceLink
+              file="engine/kerning.ts"
+              note="の solveS / computeLayout"
+            />
           </section>
 
           <section className="flex flex-col gap-3">
@@ -101,7 +108,10 @@ export function HowItWorks() {
             <DiagramFrame caption="pad は字面の高さ × 比率。中心合わせで光学中央に座る">
               <FrameDiagram />
             </DiagramFrame>
-            <SourceLink file="export.ts" note="の exportPNG / exportSVG" />
+            <SourceLink
+              file="engine/export.ts"
+              note="の exportPNG / exportSVG"
+            />
           </section>
         </div>
 

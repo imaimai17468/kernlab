@@ -1,6 +1,6 @@
-import { FONTS } from "./constants";
-import type { Controls, ControlsPatch } from "./controls";
-import { weightsOf } from "./controls";
+import { FONTS } from "../engine/constants";
+import type { Controls, ControlsPatch } from "../engine/controls";
+import { weightsOf } from "../engine/controls";
 import { Field } from "./Field";
 import { Slider } from "./Slider";
 import { Toggle } from "./Toggle";

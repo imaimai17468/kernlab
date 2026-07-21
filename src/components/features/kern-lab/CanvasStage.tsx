@@ -1,5 +1,5 @@
 import type { Ref, RefObject } from "react";
-import { Corner } from "./Corner";
+import { Corner } from "@/components/shared/corner/Corner";
 
 type CanvasStageProps = {
   canvasRef: RefObject<HTMLCanvasElement | null>;

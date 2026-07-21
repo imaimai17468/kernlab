@@ -1,4 +1,4 @@
-import type { Mode, Pair } from "./types";
+import type { Mode, Pair } from "./engine/types";
 
 type PairReadoutProps = {
   pairs: Pair[];
