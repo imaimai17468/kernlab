@@ -8,8 +8,8 @@ paths:
 Render must be a pure computation. The following three principles are independent — a violation of any one breaks purity.
 
 - **Idempotent** — Components and hooks must return the same result for the same inputs, regardless of how many times or when they are called. Never produce values during render that depend on call count or timing. e.g. `new Date()`, `Math.random()`, `crypto.randomUUID()`, direct `fetch()`, incrementing an ID counter.
-- **No side effects in render** — Render only computes JSX — it must not observe or change the outside world. Side effects belong in `useEffect` or event handlers. e.g. `document.title = ...`, `window.scrollTo()`, observational `console.log()`, writes to a global store.
-- **No mutation of non-local values** — Only values created within the current render call may be mutated. Module-scope and shared objects are off-limits. e.g. `push` into a module-scope array, incrementing a counter declared outside the function, mutating properties of an argument object.
+- **No side effects in render** — Render only computes JSX — it must not observe or change the outside world. Side effects belong in `useEffect` or event handlers. e.g. `document.title = ...`, `window.scrollTo()`, observational `console.log()`, writes to a global store. The memoization-cache exception under "No mutation of non-local values" applies here equally: a semantically transparent cache write is not an observable effect.
+- **No mutation of non-local values** — Only values created within the current render call may be mutated. Module-scope and shared objects are off-limits. e.g. `push` into a module-scope array, incrementing a counter declared outside the function, mutating properties of an argument object. The single exception is a semantically transparent memoization cache: module-scope, keyed purely by the function's inputs, written idempotently (same key always yields the same value), and observable by nothing but the memoized function itself — mutating one during render changes no rendered output, so idempotence is preserved (see Synchronizing with External Systems).
 
 # React Calls Components and Hooks (not caught by linters)
 
@@ -26,6 +26,50 @@ The deciding question: is this code running because the user did something (even
 - **Effect chains** — Multiple effects where each sets state that triggers the next is a sign that the logic belongs in a single event handler that batches all state updates at once.
 - **Notifying parent of state change** — Don't `useEffect(() => onChange(value), [value])`. Call `onChange` directly in the same event handler that calls `setValue`.
 - **useEffect is not componentDidMount** — Don't think of `useEffect(() => {}, [])` as "run once on mount." An effect synchronizes with external systems whenever its reactive dependencies change; mount and update are a single unified lifecycle. When you want "skip on initial render," reframe: the real need is usually an early return based on state value (e.g. `if (!roomId) return;`), not a ref-based "first render" flag.
+
+# Synchronizing with External Systems (not caught by linters)
+
+Corollaries of "You Might Not Need an Effect" for things that genuinely live
+outside React (fonts, observers, canvas, storage). Learned refactoring the
+KernLab canvas engine from 4 effects + 3 states down to 1 effect + 0 states
+(react-doctor 61→100); reference implementation:
+`src/components/features/kern-lab/useKernLab.ts` + `fontLoader.ts`.
+
+- **useSyncExternalStore for external readiness** — When "is X ready?" comes from
+  an external system (font loading, media queries, storage), don't mirror it
+  with `useState` + effect. Keep a module-level store (subscribe / snapshot)
+  and read it with `useSyncExternalStore`. Its server snapshot (`() => false`)
+  doubles as the SSR/hydration guard, replacing the `mounted`-flag pattern.
+- **Module scope for app initialization** — Once-per-page-load work (injecting a
+  stylesheet link, kicking off the default resource load) runs at module level
+  behind a `typeof document === "undefined"` guard, not in a `[]` effect. Once
+  per app is not once per mount.
+- **Event handlers trigger resource loads** — When a user choice requires loading
+  an external resource, start the load in the change handler that made the
+  choice. If the handler needs the post-patch state, predict it by calling the
+  pure reducer (`reducer(state, patch)`) — never add an effect that watches the
+  state to react to it.
+- **Reducers own state invariants** — When one field constrains another
+  (selected weight must be valid for the family), enforce it inside the reducer
+  on every patch. No adjust-state-in-effect, no re-clamping at every read site.
+- **Expensive derivation is still derivation** — A computation that uses the
+  DOM as a calculator (offscreen-canvas text measurement) belongs in `useMemo`
+  during render when it is idempotent and memoized (module-level cache keyed by
+  its inputs), not in an effect copying results into state. Gate it on the
+  external readiness snapshot so it never runs during SSR.
+- **Callback refs with cleanup for element observers (React 19)** — Attach
+  ResizeObserver / IntersectionObserver to an element in a callback ref that
+  returns a cleanup, not in a mount effect. Read measurements procedurally at
+  use time (`el.clientWidth` at draw time) instead of mirroring them into
+  state when the consumer is imperative anyway.
+- **Latest-ref for callbacks that outlive renders** — A subscription that must
+  run "the current logic" calls `latestRef.current()`; the sync effect updates
+  the ref each render. This avoids re-subscribing per render and stale
+  closures.
+- **The last effect standing must read as a sentence** — After the above, every
+  remaining `useEffect` should read as "synchronize [external system] with
+  [rendered value]" (e.g. paint the canvas from the computed layout). An effect
+  that doesn't fit that sentence has a better home.
 
 # Component Splitting (not caught by linters)
 
