@@ -49,7 +49,8 @@ export function renderToContext(
 
   if (showArea && L.mode === "optical") {
     const { laid } = L;
-    ctx.fillStyle = "rgba(218,58,42,0.16)";
+    // Negative-space tint: --color-kl-red (#C02E1A) at 16% opacity.
+    ctx.fillStyle = "rgba(192,46,26,0.16)";
     range(laid.length - 1).forEach((i) => {
       const A = laid[i];
       const B = laid[i + 1];

@@ -11,7 +11,7 @@ export function PairReadout({ pairs, mode }: PairReadoutProps) {
     <div>
       <div className="mb-2 text-xs font-medium tracking-wide text-kl-muted">
         {mode === "native"
-          ? "標準メトリクス表示中 — トグルを戻すと自動調整結果に戻ります"
+          ? "標準メトリクス表示中。トグルを戻すと自動調整結果に戻ります"
           : "ペアごとの自動調整量（em ／ 負値＝字面をつめている）"}
       </div>
       <div className="flex flex-wrap gap-2">
