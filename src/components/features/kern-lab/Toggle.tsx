@@ -20,7 +20,7 @@ export function Toggle({
       type="button"
       aria-pressed={on}
       onClick={onToggle}
-      className={`cursor-pointer appearance-none border border-kl-ink px-3 py-2 font-kl-mono text-xs transition duration-150 ease-out focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-kl-blue active:scale-95 motion-reduce:transition-none ${on ? `${activeFill} text-kl-paper hover:brightness-95` : "bg-kl-panel text-kl-ink hover:bg-kl-ink/5"}`}
+      className={`cursor-pointer appearance-none border border-kl-ink px-3 py-2 font-kl-mono text-xs transition duration-150 ease-out focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-kl-blue active:scale-95 active:duration-100 motion-reduce:transition-none ${on ? `${activeFill} text-kl-paper hover:brightness-95` : "bg-kl-panel text-kl-ink hover:bg-kl-ink/5"}`}
     >
       {children}
     </button>

@@ -19,7 +19,7 @@ export function CanvasStage({
       className="kl-canvas-box relative overflow-hidden border border-kl-ink bg-kl-paper"
     >
       {!fontReady && (
-        <div className="absolute inset-0 grid place-items-center text-xs text-kl-muted">
+        <div className="absolute inset-0 grid place-items-center text-xs text-kl-muted transition-opacity duration-150 ease-out starting:opacity-0 motion-reduce:transition-none">
           フォント読み込み中…
         </div>
       )}

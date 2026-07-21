@@ -17,6 +17,11 @@
   background: var(--color-kl-ink);
 }
 
+.kl-range:focus-visible {
+  outline: 2px solid var(--color-kl-blue);
+  outline-offset: 4px;
+}
+
 .kl-range::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
@@ -26,6 +31,11 @@
   background: var(--color-kl-red);
   border: 2px solid var(--color-kl-paper);
   cursor: pointer;
+  transition: transform 120ms ease-out;
+}
+
+.kl-range:active::-webkit-slider-thumb {
+  transform: scale(1.2);
 }
 
 .kl-range::-moz-range-thumb {
@@ -35,6 +45,18 @@
   background: var(--color-kl-red);
   border: 2px solid var(--color-kl-paper);
   cursor: pointer;
+  transition: transform 120ms ease-out;
+}
+
+.kl-range:active::-moz-range-thumb {
+  transform: scale(1.2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kl-range::-webkit-slider-thumb,
+  .kl-range::-moz-range-thumb {
+    transition: none;
+  }
 }
 
 @media (max-width: 640px) {

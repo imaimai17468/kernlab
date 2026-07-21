@@ -1,5 +1,5 @@
 const exportBtnClass =
-  "cursor-pointer appearance-none border border-kl-ink bg-kl-panel px-3.5 py-2 font-kl-mono text-xs font-bold transition duration-150 ease-out hover:bg-kl-ink/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-kl-blue active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-kl-panel motion-reduce:transition-none max-sm:flex-1 max-sm:text-center";
+  "cursor-pointer appearance-none border border-kl-ink bg-kl-panel px-3.5 py-2 font-kl-mono text-xs font-bold transition duration-150 ease-out hover:bg-kl-ink/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-kl-blue active:scale-95 active:duration-100 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-kl-panel motion-reduce:transition-none max-sm:flex-1 max-sm:text-center";
 
 type ExportBarProps = {
   canExport: boolean;

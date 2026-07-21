@@ -6,7 +6,7 @@ import { Slider } from "./Slider";
 import { Toggle } from "./Toggle";
 
 const inputClass =
-  "w-full appearance-none border border-kl-ink bg-kl-panel px-3 py-2.5 text-sm text-kl-ink hover:bg-kl-ink/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-kl-blue max-sm:min-h-11";
+  "w-full appearance-none border border-kl-ink bg-kl-panel px-3 py-2.5 text-sm text-kl-ink transition-colors duration-150 ease-out hover:bg-kl-ink/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-kl-blue motion-reduce:transition-none max-sm:min-h-11";
 
 type ControlPanelProps = {
   controls: Controls;
