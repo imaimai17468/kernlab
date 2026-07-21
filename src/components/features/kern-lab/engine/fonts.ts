@@ -8,11 +8,27 @@ export function famCssParam(f: Font): string {
   return `family=${fam}:wght@${f.weights.join(";")}`;
 }
 
-/** Stylesheet href for every tool font plus Space Mono (UI monospace). */
-export function buildFontsHref(): string {
-  const parts = FONTS.map(famCssParam);
-  parts.push("family=Space+Mono:wght@400;700");
-  return `https://fonts.googleapis.com/css2?${parts.join("&")}&display=swap`;
+/**
+ * Stylesheet href for one family (all of its tool weights). Families are
+ * fetched one stylesheet each, on demand: a combined all-family stylesheet
+ * measures ~458 KB gzipped (the Japanese families ship hundreds of
+ * unicode-range subset rules each), which is far too heavy to pay on every
+ * page load for fonts the user may never select.
+ */
+export function fontHref(f: Font): string {
+  return `https://fonts.googleapis.com/css2?${famCssParam(f)}&display=swap`;
+}
+
+/** UI monospace for DOM text (readouts, captions) — not a tool font. */
+export const UI_FONT: Font = {
+  name: "Space Mono",
+  weights: [400, 700],
+  note: "UIモノスペース",
+};
+
+/** Tool font entry for a family name (undefined for unknown names). */
+export function fontByName(name: string): Font | undefined {
+  return FONTS.find((f) => f.name === name);
 }
 
 /** Stylesheet href for a single family+weight (embedded in exported SVG). */

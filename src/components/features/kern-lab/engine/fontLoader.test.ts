@@ -1,119 +1,242 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  FONTS_LINK_ID,
-  injectFontsStylesheet,
+  fontLinkId,
+  injectUiFontStylesheet,
   isFontSettled,
   loadFont,
   subscribeFonts,
 } from "./fontLoader";
 
 // jsdom does not implement document.fonts; install a minimal FontFaceSet mock
-// so the loader's browser path is exercised. The settled/pending sets are
-// module singletons, so every test uses a distinct family name.
-function installFontsMock(load = vi.fn().mockResolvedValue([])) {
+// so the loader's browser path is exercised. The coverage maps are module
+// singletons, so every test uses a distinct family name.
+function installFontsMock(
+  load = vi.fn().mockResolvedValue([]),
+  check = vi.fn().mockReturnValue(false)
+) {
   Object.defineProperty(document, "fonts", {
-    value: { load, ready: Promise.resolve() },
+    value: { load, check, ready: Promise.resolve() },
     configurable: true,
   });
   return load;
 }
 
+/** Pre-inject a link for the family and mark it as already parsed. */
+function installParsedLink(family: string) {
+  const link = document.createElement("link");
+  link.id = fontLinkId(family);
+  Object.defineProperty(link, "sheet", { value: {}, configurable: true });
+  document.head.appendChild(link);
+}
+
+const familyLink = (family: string) =>
+  document.getElementById(fontLinkId(family));
+
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 afterEach(() => {
   Reflect.deleteProperty(document, "fonts");
-  document.getElementById(FONTS_LINK_ID)?.remove();
+  document
+    .querySelectorAll('link[id^="kernlab-font-"]')
+    .forEach((link) => link.remove());
   vi.restoreAllMocks();
 });
 
 describe("loadFont", () => {
-  it("should mark the spec settled when the load resolves", async () => {
+  it("should inject the family stylesheet link when the family is first requested", () => {
     installFontsMock();
-    loadFont("Test Resolve", 400);
-    await flush();
-    expect(isFontSettled("Test Resolve", 400)).toBe(true);
+    loadFont("Test Inject", 400, "A");
+    expect(familyLink("Test Inject")).not.toBeNull();
   });
 
-  it("should mark the spec settled when the load rejects", async () => {
-    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  it("should inject the family stylesheet link only once when called twice", () => {
+    installFontsMock();
+    loadFont("Test Inject Once", 400, "A");
+    loadFont("Test Inject Once", 400, "B");
+    expect(
+      document.querySelectorAll(`#${fontLinkId("Test Inject Once")}`)
+    ).toHaveLength(1);
+  });
+
+  it("should mark the text covered when the load resolves", async () => {
+    installFontsMock();
+    loadFont("Test Resolve", 400, "AB");
+    await flush();
+    familyLink("Test Resolve")?.dispatchEvent(new Event("load"));
+    await flush();
+    expect(isFontSettled("Test Resolve", 400, "AB")).toBe(true);
+  });
+
+  it("should mark the text covered when the load rejects", async () => {
     installFontsMock(vi.fn().mockRejectedValue(new Error("blocked")));
-    loadFont("Test Reject", 400);
+    loadFont("Test Reject", 400, "AB");
+    familyLink("Test Reject")?.dispatchEvent(new Event("load"));
     await flush();
-    expect(isFontSettled("Test Reject", 400)).toBe(true);
+    expect(isFontSettled("Test Reject", 400, "AB")).toBe(true);
   });
 
-  it("should not start a second load when the spec is still pending", async () => {
+  it("should pass deduplicated characters to document.fonts.load when the text repeats them", async () => {
+    const load = installFontsMock();
+    loadFont("Test Batch", 400, "AAB");
+    familyLink("Test Batch")?.dispatchEvent(new Event("load"));
+    await flush();
+    expect(load).toHaveBeenCalledWith('400 240px "Test Batch"', "AB");
+  });
+
+  it("should not start a second load when the characters are still pending", async () => {
     const load = installFontsMock(
       vi.fn().mockReturnValue(new Promise(() => undefined))
     );
-    loadFont("Test Pending", 400);
-    loadFont("Test Pending", 400);
+    loadFont("Test Pending", 400, "AB");
+    familyLink("Test Pending")?.dispatchEvent(new Event("load"));
+    loadFont("Test Pending", 400, "AB");
     await flush();
     expect(load).toHaveBeenCalledTimes(1);
   });
 
-  it("should not start another load when the spec has already settled", async () => {
+  it("should not start another load when every character is already covered", async () => {
     const load = installFontsMock();
-    loadFont("Test Settled", 400);
+    loadFont("Test Covered", 400, "AB");
+    familyLink("Test Covered")?.dispatchEvent(new Event("load"));
     await flush();
-    loadFont("Test Settled", 400);
+    loadFont("Test Covered", 400, "BA");
     expect(load).toHaveBeenCalledTimes(1);
+  });
+
+  it("should request only the uncovered characters when the text grows", async () => {
+    const load = installFontsMock();
+    loadFont("Test Grow", 400, "AB");
+    familyLink("Test Grow")?.dispatchEvent(new Event("load"));
+    await flush();
+    loadFont("Test Grow", 400, "ABC");
+    await flush();
+    expect(load).toHaveBeenLastCalledWith('400 240px "Test Grow"', "C");
+  });
+
+  it("should not call load at all when the text is empty", async () => {
+    const load = installFontsMock();
+    loadFont("Test Empty Load", 400, "");
+    await flush();
+    expect(load).not.toHaveBeenCalled();
   });
 
   it("should be a no-op when document.fonts is unavailable", () => {
     Reflect.deleteProperty(document, "fonts");
-    loadFont("Test NoFonts", 400);
-    expect(isFontSettled("Test NoFonts", 400)).toBe(false);
+    loadFont("Test NoFonts", 400, "A");
+    expect(isFontSettled("Test NoFonts", 400, "A")).toBe(false);
   });
 
-  it("should not settle when the injected stylesheet is still loading", async () => {
-    installFontsMock();
-    injectFontsStylesheet();
-    loadFont("Test Gate Pending", 400);
+  it("should cover the text synchronously when the parsed stylesheet already provides its faces", () => {
+    installFontsMock(
+      vi.fn().mockResolvedValue([]),
+      vi.fn().mockReturnValue(true)
+    );
+    installParsedLink("Test Sync Check");
+    loadFont("Test Sync Check", 400, "AB");
+    expect(isFontSettled("Test Sync Check", 400, "AB")).toBe(true);
+  });
+
+  it("should skip document.fonts.load when the synchronous check covers the text", async () => {
+    const load = installFontsMock(
+      vi.fn().mockResolvedValue([]),
+      vi.fn().mockReturnValue(true)
+    );
+    installParsedLink("Test Sync Skip");
+    loadFont("Test Sync Skip", 400, "AB");
     await flush();
-    expect(isFontSettled("Test Gate Pending", 400)).toBe(false);
+    expect(load).not.toHaveBeenCalled();
+  });
+
+  it("should fall back to document.fonts.load when the parsed stylesheet lacks the needed faces", async () => {
+    const load = installFontsMock(
+      vi.fn().mockResolvedValue([]),
+      vi.fn().mockReturnValue(false)
+    );
+    installParsedLink("Test Check Miss");
+    loadFont("Test Check Miss", 400, "AB");
+    await flush();
+    expect(load).toHaveBeenCalledWith('400 240px "Test Check Miss"', "AB");
+  });
+
+  it("should not inject a stylesheet link when a foreign non-link element carries the family id", () => {
+    installFontsMock();
+    const foreign = document.createElement("div");
+    foreign.id = fontLinkId("Test Foreign Div");
+    document.body.appendChild(foreign);
+    loadFont("Test Foreign Div", 400, "A");
+    foreign.remove();
+    expect(
+      document.querySelectorAll(`link#${fontLinkId("Test Foreign Div")}`)
+    ).toHaveLength(0);
+  });
+
+  it("should settle without a stylesheet gate when a foreign non-link element carries the family id", async () => {
+    installFontsMock();
+    const foreign = document.createElement("div");
+    foreign.id = fontLinkId("Test Foreign Div Settle");
+    document.body.appendChild(foreign);
+    loadFont("Test Foreign Div Settle", 400, "A");
+    await flush();
+    foreign.remove();
+    expect(isFontSettled("Test Foreign Div Settle", 400, "A")).toBe(true);
+  });
+
+  it("should ignore the synchronous check when the stylesheet is still loading", async () => {
+    installFontsMock(
+      vi.fn().mockResolvedValue([]),
+      vi.fn().mockReturnValue(true)
+    );
+    loadFont("Test Unparsed Check", 400, "A");
+    await flush();
+    expect(isFontSettled("Test Unparsed Check", 400, "A")).toBe(false);
+    // Drain the gated chain so no pending timer leaks past this test.
+    familyLink("Test Unparsed Check")?.dispatchEvent(new Event("load"));
+  });
+
+  it("should not settle when the family stylesheet is still loading", async () => {
+    installFontsMock();
+    loadFont("Test Gate Pending", 400, "A");
+    await flush();
+    expect(isFontSettled("Test Gate Pending", 400, "A")).toBe(false);
     // Drain the gated chain so no pending promise leaks past this test.
-    document.getElementById(FONTS_LINK_ID)?.dispatchEvent(new Event("load"));
+    familyLink("Test Gate Pending")?.dispatchEvent(new Event("load"));
   });
 
   it("should settle after the stylesheet fires load when it was pending", async () => {
     installFontsMock();
-    injectFontsStylesheet();
-    loadFont("Test Gate Load", 400);
+    loadFont("Test Gate Load", 400, "A");
     await flush();
-    document.getElementById(FONTS_LINK_ID)?.dispatchEvent(new Event("load"));
+    familyLink("Test Gate Load")?.dispatchEvent(new Event("load"));
     await flush();
-    expect(isFontSettled("Test Gate Load", 400)).toBe(true);
+    expect(isFontSettled("Test Gate Load", 400, "A")).toBe(true);
   });
 
   it("should settle after the stylesheet fires error when it was pending", async () => {
     installFontsMock();
-    injectFontsStylesheet();
-    loadFont("Test Gate Error", 400);
+    loadFont("Test Gate Error", 400, "A");
     await flush();
-    document.getElementById(FONTS_LINK_ID)?.dispatchEvent(new Event("error"));
+    familyLink("Test Gate Error")?.dispatchEvent(new Event("error"));
     await flush();
-    expect(isFontSettled("Test Gate Error", 400)).toBe(true);
+    expect(isFontSettled("Test Gate Error", 400, "A")).toBe(true);
   });
 
-  it("should settle a later font pick when the stylesheet already failed", async () => {
+  it("should settle a later text change when the stylesheet already failed", async () => {
     installFontsMock();
-    injectFontsStylesheet();
-    document.getElementById(FONTS_LINK_ID)?.dispatchEvent(new Event("error"));
+    loadFont("Test After Error", 400, "A");
+    familyLink("Test After Error")?.dispatchEvent(new Event("error"));
     await flush();
-    loadFont("Test After Error", 400);
+    loadFont("Test After Error", 400, "B");
     await flush();
-    expect(isFontSettled("Test After Error", 400)).toBe(true);
+    expect(isFontSettled("Test After Error", 400, "AB")).toBe(true);
   });
 
   it("should settle via the timeout when the stylesheet never fires load or error", async () => {
     vi.useFakeTimers();
     try {
       installFontsMock();
-      injectFontsStylesheet();
-      loadFont("Test Gate Timeout", 400);
+      loadFont("Test Gate Timeout", 400, "A");
       await vi.advanceTimersByTimeAsync(5001);
-      expect(isFontSettled("Test Gate Timeout", 400)).toBe(true);
+      expect(isFontSettled("Test Gate Timeout", 400, "A")).toBe(true);
     } finally {
       vi.useRealTimers();
     }
@@ -121,46 +244,56 @@ describe("loadFont", () => {
 
   it("should settle without waiting when the stylesheet is already parsed", async () => {
     installFontsMock();
-    injectFontsStylesheet();
-    const link = document.getElementById(FONTS_LINK_ID);
-    if (link) {
-      Object.defineProperty(link, "sheet", { value: {}, configurable: true });
-    }
-    loadFont("Test Sheet Ready", 400);
+    installParsedLink("Test Sheet Ready");
+    loadFont("Test Sheet Ready", 400, "A");
     await flush();
-    expect(isFontSettled("Test Sheet Ready", 400)).toBe(true);
+    expect(isFontSettled("Test Sheet Ready", 400, "A")).toBe(true);
   });
 
-  it("should settle immediately when a foreign link carries the fonts id", async () => {
+  it("should settle without stylesheet events when a foreign link carries the family id", async () => {
     installFontsMock();
     const foreign = document.createElement("link");
-    foreign.id = FONTS_LINK_ID;
+    foreign.id = fontLinkId("Test Foreign Link");
     document.head.appendChild(foreign);
-    loadFont("Test Foreign Link", 400);
+    loadFont("Test Foreign Link", 400, "A");
     await flush();
-    expect(isFontSettled("Test Foreign Link", 400)).toBe(true);
+    expect(isFontSettled("Test Foreign Link", 400, "A")).toBe(true);
   });
 });
 
 describe("isFontSettled", () => {
   it("should report false when no load was attempted for the spec", () => {
-    expect(isFontSettled("Test Never Loaded", 400)).toBe(false);
+    expect(isFontSettled("Test Never Loaded", 400, "A")).toBe(false);
+  });
+
+  it("should report true when the text is empty", () => {
+    expect(isFontSettled("Test Empty Text", 400, "")).toBe(true);
+  });
+
+  it("should report false when only part of the text has been covered", async () => {
+    installFontsMock();
+    loadFont("Test Partial", 400, "A");
+    familyLink("Test Partial")?.dispatchEvent(new Event("load"));
+    await flush();
+    expect(isFontSettled("Test Partial", 400, "AB")).toBe(false);
   });
 
   it("should distinguish weights when only one weight has settled", async () => {
     installFontsMock();
-    loadFont("Test Weights", 400);
+    loadFont("Test Weights", 400, "A");
+    familyLink("Test Weights")?.dispatchEvent(new Event("load"));
     await flush();
-    expect(isFontSettled("Test Weights", 700)).toBe(false);
+    expect(isFontSettled("Test Weights", 700, "A")).toBe(false);
   });
 });
 
 describe("subscribeFonts", () => {
-  it("should notify the listener when a spec settles", async () => {
+  it("should notify the listener when a batch settles", async () => {
     installFontsMock();
     const listener = vi.fn();
     const unsubscribe = subscribeFonts(listener);
-    loadFont("Test Notify", 400);
+    loadFont("Test Notify", 400, "A");
+    familyLink("Test Notify")?.dispatchEvent(new Event("load"));
     await flush();
     unsubscribe();
     expect(listener).toHaveBeenCalledTimes(1);
@@ -170,16 +303,19 @@ describe("subscribeFonts", () => {
     installFontsMock();
     const listener = vi.fn();
     subscribeFonts(listener)();
-    loadFont("Test Unsubscribed", 400);
+    loadFont("Test Unsubscribed", 400, "A");
+    familyLink("Test Unsubscribed")?.dispatchEvent(new Event("load"));
     await flush();
     expect(listener).not.toHaveBeenCalled();
   });
 });
 
-describe("injectFontsStylesheet", () => {
-  it("should inject the stylesheet link only once when called twice", () => {
-    injectFontsStylesheet();
-    injectFontsStylesheet();
-    expect(document.querySelectorAll(`#${FONTS_LINK_ID}`)).toHaveLength(1);
+describe("injectUiFontStylesheet", () => {
+  it("should inject the Space Mono link only once when called twice", () => {
+    injectUiFontStylesheet();
+    injectUiFontStylesheet();
+    expect(
+      document.querySelectorAll(`#${fontLinkId("Space Mono")}`)
+    ).toHaveLength(1);
   });
 });

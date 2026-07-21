@@ -9,7 +9,7 @@ import { CanvasStage } from "./CanvasStage";
 import { ControlPanel } from "./control-panel/ControlPanel";
 import type { ControlsPatch } from "./engine/controls";
 import { controlsReducer, INITIAL_CONTROLS } from "./engine/controls";
-import { injectFontsStylesheet, loadFont } from "./engine/fontLoader";
+import { injectUiFontStylesheet, loadFont } from "./engine/fontLoader";
 import { ExportBar } from "./ExportBar";
 import { PairReadout } from "./PairReadout";
 import "./styles.css";
@@ -17,19 +17,28 @@ import { useKernLab } from "./useKernLab";
 
 // App-level initialization: runs once per page load, not per mount (and is a
 // no-op during SSR). The default font starts loading before first paint.
-injectFontsStylesheet();
-loadFont(INITIAL_CONTROLS.family, INITIAL_CONTROLS.weight);
+injectUiFontStylesheet();
+loadFont(
+  INITIAL_CONTROLS.family,
+  INITIAL_CONTROLS.weight,
+  INITIAL_CONTROLS.text
+);
 
 export function KernLab() {
   const [controls, dispatch] = useReducer(controlsReducer, INITIAL_CONTROLS);
 
-  // Every control change goes through here; picking a font also kicks off its
-  // load — a side effect belonging to the event, not to an effect watching state.
+  // Every control change goes through here; picking a font or typing new
+  // characters also kicks off the needed face loads — a side effect belonging
+  // to the event, not to an effect watching state.
   const updateControls = (patch: ControlsPatch) => {
     dispatch(patch);
-    if (patch.family !== undefined || patch.weight !== undefined) {
+    if (
+      patch.family !== undefined ||
+      patch.weight !== undefined ||
+      patch.text !== undefined
+    ) {
       const next = controlsReducer(controls, patch);
-      loadFont(next.family, next.weight);
+      loadFont(next.family, next.weight, next.text);
     }
   };
 

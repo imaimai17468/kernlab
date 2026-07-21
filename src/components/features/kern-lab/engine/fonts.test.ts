@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { FONTS } from "./constants";
-import { buildFontsHref, famCssParam, singleFontCss } from "./fonts";
+import {
+  famCssParam,
+  fontByName,
+  fontHref,
+  singleFontCss,
+  UI_FONT,
+} from "./fonts";
 
 describe("famCssParam", () => {
   it("should omit the weight axis when the family has only weight 400", () => {
@@ -22,24 +27,27 @@ describe("famCssParam", () => {
   });
 });
 
-describe("buildFontsHref", () => {
-  it("should start with the Google Fonts css2 endpoint when built", () => {
+describe("fontHref", () => {
+  it("should build a css2 url with display swap when given a family", () => {
     expect(
-      buildFontsHref().startsWith("https://fonts.googleapis.com/css2?")
-    ).toBe(true);
+      fontHref({ name: "Noto Sans JP", weights: [400, 700], note: "x" })
+    ).toBe(
+      "https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700&display=swap"
+    );
   });
 
-  it("should include Space Mono when built", () => {
-    expect(buildFontsHref()).toContain("family=Space+Mono:wght@400;700");
+  it("should cover both UI weights when given the UI font", () => {
+    expect(fontHref(UI_FONT)).toContain("family=Space+Mono:wght@400;700");
+  });
+});
+
+describe("fontByName", () => {
+  it("should return the tool font entry when the family is in the menu", () => {
+    expect(fontByName("Anton")?.weights).toEqual([400]);
   });
 
-  it("should end with display=swap when built", () => {
-    expect(buildFontsHref().endsWith("&display=swap")).toBe(true);
-  });
-
-  it("should include every tool family when built", () => {
-    const href = buildFontsHref();
-    expect(FONTS.every((f) => href.includes(famCssParam(f)))).toBe(true);
+  it("should return undefined when the family is unknown", () => {
+    expect(fontByName("Nonexistent Family")).toBeUndefined();
   });
 });
 

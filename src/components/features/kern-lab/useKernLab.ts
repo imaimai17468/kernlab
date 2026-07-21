@@ -46,7 +46,7 @@ export function useKernLab(controls: Controls): UseKernLabResult {
 
   const fontReady = useSyncExternalStore(
     subscribeFonts,
-    () => isFontSettled(family, weight),
+    () => isFontSettled(family, weight, text),
     () => false
   );
 
