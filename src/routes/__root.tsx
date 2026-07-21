@@ -1,11 +1,6 @@
-import {
-  HeadContent,
-  Outlet,
-  Scripts,
-  createRootRoute,
-} from "@tanstack/react-router";
-import { ThemeProvider } from "@/components/shared/theme-provider/ThemeProvider";
-import { Toaster } from "@/components/ui/sonner";
+import { createRootRoute } from "@tanstack/react-router";
+import { NotFound } from "./-not-found";
+import { RootComponent } from "./-root";
 import "@/styles.css";
 
 export const Route = createRootRoute({
@@ -17,33 +12,5 @@ export const Route = createRootRoute({
     ],
   }),
   component: RootComponent,
-  notFoundComponent: () => <p>ページが見つかりません</p>,
+  notFoundComponent: NotFound,
 });
-
-function RootComponent() {
-  return (
-    <html lang="ja" suppressHydrationWarning>
-      <head>
-        <HeadContent />
-      </head>
-      <body
-        className="antialiased"
-        style={{
-          fontFamily:
-            '"Hiragino Kaku Gothic ProN", "ヒラギノ角ゴ ProN W3", "Hiragino Kaku Gothic Pro", "ヒラギノ角ゴ Pro W3", "メイリオ", Meiryo, "游ゴシック", YuGothic, sans-serif',
-        }}
-      >
-        <ThemeProvider
-          attribute="class"
-          defaultTheme="light"
-          enableSystem={false}
-          disableTransitionOnChange
-        >
-          <Outlet />
-          <Toaster richColors position="top-center" />
-        </ThemeProvider>
-        <Scripts />
-      </body>
-    </html>
-  );
-}
