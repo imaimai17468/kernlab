@@ -30,8 +30,6 @@ export type Glyph = {
   readonly Rr: Float32Array;
 };
 
-export type GlyphCache = Map<string, Glyph>;
-
 /** A glyph placed on the optical baseline layout. */
 export type PlacedGlyph = {
   readonly g: Glyph;
@@ -43,12 +41,12 @@ export type PairInfo = {
   readonly b: string;
   /** Solved spacing between the two glyphs, in measurement-space px. */
   readonly s: number;
+  /** Position of the pair in the laid-out text (stable identity for list keys). */
+  readonly index: number;
 };
 
 /** A pair annotated with its em-normalized adjustment for the readout. */
 export type Pair = PairInfo & { readonly em: number };
-
-export type Size = { readonly w: number; readonly h: number };
 
 type LayoutBase = {
   readonly family: string;

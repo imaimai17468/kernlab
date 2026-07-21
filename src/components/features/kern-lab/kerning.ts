@@ -1,23 +1,18 @@
 import { ALPHA, BASE, MH, MS, MW, PAD } from "./constants";
 import { range } from "./range";
-import type {
-  GlyphCache,
-  Glyph,
-  Layout,
-  Mode,
-  PairInfo,
-  PlacedGlyph,
-} from "./types";
+import type { Glyph, Layout, Mode, PairInfo, PlacedGlyph } from "./types";
+
+// Module-level memoization of glyph measurements. Keys include family+weight,
+// and glyphs are only measured after the font spec has settled (see
+// fontLoader.ts), so entries never mix fallback and real metrics. Capped so a
+// long session cycling many fonts cannot grow it unboundedly.
+const glyphCache = new Map<string, Glyph>();
+const GLYPH_CACHE_MAX = 512;
 
 /** Measure one glyph on an offscreen raster: ink bounding box + per-row edge profiles. */
-function measureGlyph(
-  ch: string,
-  family: string,
-  weight: number,
-  cache: GlyphCache
-): Glyph {
+function measureGlyph(ch: string, family: string, weight: number): Glyph {
   const key = `${ch}|${family}|${weight}`;
-  const cached = cache.get(key);
+  const cached = glyphCache.get(key);
   if (cached) return cached;
 
   const cv = document.createElement("canvas");
@@ -88,7 +83,8 @@ function measureGlyph(
     Lp,
     Rr,
   };
-  cache.set(key, g);
+  if (glyphCache.size >= GLYPH_CACHE_MAX) glyphCache.clear();
+  glyphCache.set(key, g);
   return g;
 }
 
@@ -134,21 +130,22 @@ type ComputeLayoutParams = {
   readonly tightness: number;
   readonly frame: number;
   readonly mode: Mode;
-  readonly cache: GlyphCache;
 };
 
 /** Build the shared layout consumed by the on-screen canvas, PNG and SVG exporters. */
 export function computeLayout(p: ComputeLayoutParams): Layout | null {
-  const { text, family, weight, tightness, frame, mode, cache } = p;
+  const { text, family, weight, tightness, frame, mode } = p;
   const chars = Array.from(text);
   const drawable = chars.filter((c) => c !== " ");
   if (drawable.length === 0) return null;
 
-  const heights = drawable
-    .map((c) => measureGlyph(c, family, weight, cache))
-    .filter((g) => g.hasInk)
-    .map((g) => g.inkBottom - g.inkTop)
-    .toSorted((a, b) => a - b);
+  // Single pass: measure each drawable glyph and collect ink heights.
+  const inkHeights: number[] = [];
+  drawable.forEach((c) => {
+    const g = measureGlyph(c, family, weight);
+    if (g.hasInk) inkHeights.push(g.inkBottom - g.inkTop);
+  });
+  const heights = inkHeights.toSorted((a, b) => a - b);
   const refH = heights.length ? heights[Math.floor(heights.length / 2)] : MS;
 
   const target = (0.03 + 0.2 * tightness) * refH;
@@ -166,7 +163,7 @@ export function computeLayout(p: ComputeLayoutParams): Layout | null {
         pendingSpace = true;
         return;
       }
-      const g = measureGlyph(c, family, weight, cache);
+      const g = measureGlyph(c, family, weight);
       if (!g.hasInk) {
         pendingSpace = false;
         prev = null;
@@ -179,7 +176,7 @@ export function computeLayout(p: ComputeLayoutParams): Layout | null {
         let s = solveS(prev.g, g, target, cap, floor);
         if (pendingSpace) s += spaceGap;
         x = prev.inkLeftX + prev.g.width + s;
-        pairInfo.push({ a: prev.g.ch, b: c, s });
+        pairInfo.push({ a: prev.g.ch, b: c, s, index: pairInfo.length });
       }
       const placed: PlacedGlyph = { g, inkLeftX: x };
       raw.push(placed);
