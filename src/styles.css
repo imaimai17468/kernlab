@@ -38,6 +38,19 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
+  /* KERN LAB tool palette — fixed print-instrument colors, not theme-flipped.
+     Mirrored as JS hex in kern-lab/constants.ts for canvas rendering. */
+  --color-kl-ink: #17181a;
+  --color-kl-paper: #e9ebe6;
+  --color-kl-panel: #fbfbf9;
+  --color-kl-red: #da3a2a;
+  --color-kl-blue: #2e5fb0;
+  --color-kl-grey: #9a9c97;
+  --color-kl-muted: #565750;
+  --font-kl-sans: system-ui, sans-serif;
+  --font-kl-mono: "Space Mono", ui-monospace, monospace;
+  --grid-template-columns-kl-top: minmax(180px, 1.4fr) 1fr auto;
+  --grid-template-columns-kl-ctrl: 1fr 1fr auto;
   --radius-sm: 8px;
   --radius-md: 8px;
   --radius-lg: 8px;

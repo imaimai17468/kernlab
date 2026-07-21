@@ -1,0 +1,55 @@
+/*
+ * KERN LAB: the two things standard Tailwind utilities can't express cleanly —
+ * the fixed canvas-preview height and the range-input track/thumb
+ * pseudo-elements. Everything else is Tailwind. Colors reference the kl-* theme
+ * tokens registered in src/styles.css (no hardcoded hex here).
+ */
+
+.kl-canvas-box {
+  min-height: 420px;
+}
+
+.kl-range {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 2px;
+  border-radius: var(--radius-full);
+  background: var(--color-kl-ink);
+}
+
+.kl-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 15px;
+  height: 15px;
+  border-radius: var(--radius-full);
+  background: var(--color-kl-red);
+  border: 2px solid var(--color-kl-paper);
+  cursor: pointer;
+}
+
+.kl-range::-moz-range-thumb {
+  width: 13px;
+  height: 13px;
+  border-radius: var(--radius-full);
+  background: var(--color-kl-red);
+  border: 2px solid var(--color-kl-paper);
+  cursor: pointer;
+}
+
+@media (max-width: 640px) {
+  .kl-canvas-box {
+    min-height: 290px;
+  }
+  .kl-range {
+    height: 3px;
+  }
+  .kl-range::-webkit-slider-thumb {
+    width: 20px;
+    height: 20px;
+  }
+  .kl-range::-moz-range-thumb {
+    width: 18px;
+    height: 18px;
+  }
+}
