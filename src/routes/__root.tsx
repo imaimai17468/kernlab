@@ -4,7 +4,6 @@ import {
   Scripts,
   createRootRoute,
 } from "@tanstack/react-router";
-import { Header } from "@/components/shared/header/Header";
 import { ThemeProvider } from "@/components/shared/theme-provider/ThemeProvider";
 import { Toaster } from "@/components/ui/sonner";
 import "@/styles.css";
@@ -14,7 +13,7 @@ export const Route = createRootRoute({
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "imaimai-front-templete" },
+      { title: "KERN LAB — 光学カーニング自動調整" },
     ],
   }),
   component: RootComponent,
@@ -40,14 +39,7 @@ function RootComponent() {
           enableSystem={false}
           disableTransitionOnChange
         >
-          <div className="flex min-h-dvh flex-col gap-16">
-            <Header />
-            <div className="flex w-full flex-1 justify-center px-6 md:px-4">
-              <div className="container w-full">
-                <Outlet />
-              </div>
-            </div>
-          </div>
+          <Outlet />
           <Toaster richColors position="top-center" />
         </ThemeProvider>
         <Scripts />
