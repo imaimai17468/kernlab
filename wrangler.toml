@@ -1,4 +1,4 @@
-name = "my-project"
+name = "kernlab"
 main = "./src/ssr.ts"
 compatibility_date = "2024-12-01"
 compatibility_flags = ["nodejs_compat"]
