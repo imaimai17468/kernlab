@@ -27,14 +27,20 @@ export const INITIAL_CONTROLS: Controls = {
 /** A partial update; every control dispatches a merge patch. */
 export type ControlsPatch = Partial<Controls>;
 
-/** Supported weights for a family (single-weight fallback for unknown names). */
-export function weightsOf(family: string): readonly number[] {
-  return FONTS.find((f) => f.name === family)?.weights ?? [400];
+/** Supported weights for a built-in family (undefined for unknown names). */
+export function weightsOf(family: string): readonly number[] | undefined {
+  return FONTS.find((f) => f.name === family)?.weights;
 }
 
-/** Clamp a requested weight to the family's supported weights. */
+/**
+ * Clamp a requested weight to a built-in family's supported weights. Custom
+ * families are unknown to this pure module: their weight validity is enforced
+ * at the event site against the registry (specs/custom-fonts.spec.md), so the
+ * requested weight passes through untouched.
+ */
 export function resolveWeight(family: string, weight: number): number {
   const weights = weightsOf(family);
+  if (!weights) return weight;
   return weights.includes(weight) ? weight : weights[0];
 }
 

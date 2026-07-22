@@ -1,4 +1,5 @@
 import { MS } from "./constants";
+import { isCustomFamily } from "./customFonts";
 import type { Font } from "./types";
 import { fontByName, fontHref, UI_FONT } from "./fonts";
 
@@ -141,16 +142,21 @@ export function loadFont(family: string, weight: number, text: string): void {
     (ch) => !(done?.has(ch) || inFlight.has(ch))
   );
   if (chars.length === 0) return;
-  // Unknown families (nothing to fetch) still go through the same flow with
-  // just the requested weight — they settle to fallback metrics.
+  // Custom families are registered FontFaces with no remote stylesheet: skip
+  // injection entirely (the null-link "no gate" path) and let the synchronous
+  // check cover them — their faces are always loaded before they are
+  // selectable (spec: custom-fonts). Unknown families (nothing to fetch)
+  // still go through the same flow with just the requested weight — they
+  // settle to fallback metrics.
+  const custom = isCustomFamily(family);
   const font = fontByName(family) ?? {
     name: family,
     weights: [weight],
     note: "",
   };
-  const link = ensureFamilyStylesheet(font);
+  const link = custom ? null : ensureFamilyStylesheet(font);
   const batch = chars.join("");
-  if (link?.sheet && document.fonts.check(spec, batch)) {
+  if ((custom || link?.sheet) && document.fonts.check(spec, batch)) {
     markCovered(spec, chars);
     return;
   }

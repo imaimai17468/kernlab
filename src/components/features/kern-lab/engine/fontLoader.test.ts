@@ -7,6 +7,12 @@ import {
   subscribeFonts,
 } from "./fontLoader";
 
+// Registry stub: families prefixed "Custom " take the loader's custom branch
+// (no stylesheet injection, sync-check trust without a parsed sheet).
+vi.mock("./customFonts", () => ({
+  isCustomFamily: (name: string) => name.startsWith("Custom "),
+}));
+
 // jsdom does not implement document.fonts; install a minimal FontFaceSet mock
 // so the loader's browser path is exercised. The coverage maps are module
 // singletons, so every test uses a distinct family name.
@@ -248,6 +254,28 @@ describe("loadFont", () => {
     loadFont("Test Sheet Ready", 400, "A");
     await flush();
     expect(isFontSettled("Test Sheet Ready", 400, "A")).toBe(true);
+  });
+
+  it("should not inject a stylesheet link when the family is custom", () => {
+    installFontsMock();
+    loadFont("Custom NoLink", 400, "A");
+    expect(familyLink("Custom NoLink")).toBeNull();
+  });
+
+  it("should cover the text synchronously when the custom face is already loaded", () => {
+    installFontsMock(
+      vi.fn().mockResolvedValue([]),
+      vi.fn().mockReturnValue(true)
+    );
+    loadFont("Custom Sync", 400, "AB");
+    expect(isFontSettled("Custom Sync", 400, "AB")).toBe(true);
+  });
+
+  it("should settle a custom family through document.fonts.load when the face is not yet loaded", async () => {
+    installFontsMock();
+    loadFont("Custom Async", 400, "A");
+    await flush();
+    expect(isFontSettled("Custom Async", 400, "A")).toBe(true);
   });
 
   it("should settle without stylesheet events when a foreign link carries the family id", async () => {

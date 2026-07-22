@@ -1,14 +1,20 @@
 "use client";
 
 import { Link } from "@tanstack/react-router";
-import { useReducer } from "react";
+import { useEffect, useReducer, useRef } from "react";
 import { ACCENT_LINK_CLASS } from "@/components/shared/external-link/accentLinkClass";
 import { ExternalLink } from "@/components/shared/external-link/ExternalLink";
 import { GITHUB_URL } from "@/lib/site";
 import { CanvasStage } from "./CanvasStage";
 import { ControlPanel } from "./control-panel/ControlPanel";
-import type { ControlsPatch } from "./engine/controls";
+import type { Controls, ControlsPatch } from "./engine/controls";
 import { controlsReducer, INITIAL_CONTROLS } from "./engine/controls";
+import type { FontIntakeItem } from "./engine/customFonts";
+import {
+  addFontIntakes,
+  removeCustomFont,
+  restoreCustomFonts,
+} from "./engine/customFonts";
 import { injectUiFontStylesheet, loadFont } from "./engine/fontLoader";
 import { ExportBar } from "./ExportBar";
 import { PairReadout } from "./PairReadout";
@@ -16,30 +22,69 @@ import "./styles.css";
 import { useKernLab } from "./useKernLab";
 
 // App-level initialization: runs once per page load, not per mount (and is a
-// no-op during SSR). The default font starts loading before first paint.
+// no-op during SSR). The default font starts loading and the persisted custom
+// fonts start restoring before first paint.
 injectUiFontStylesheet();
 loadFont(
   INITIAL_CONTROLS.family,
   INITIAL_CONTROLS.weight,
   INITIAL_CONTROLS.text
 );
+restoreCustomFonts();
 
 export function KernLab() {
   const [controls, dispatch] = useReducer(controlsReducer, INITIAL_CONTROLS);
+
+  // Latest-ref: custom-font intake/removal settle asynchronously and must
+  // reconcile against the controls at completion time, not at dispatch time.
+  // updateControls advances the ref synchronously with dispatch (the reducer
+  // is pure, so both compute the same next state) — an async completion
+  // landing between a dispatch and its commit still reads the true value; the
+  // sync effect re-anchors after every commit.
+  const controlsRef = useRef<Controls>(controls);
+  useEffect(() => {
+    controlsRef.current = controls;
+  });
 
   // Every control change goes through here; picking a font or typing new
   // characters also kicks off the needed face loads — a side effect belonging
   // to the event, not to an effect watching state.
   const updateControls = (patch: ControlsPatch) => {
+    const next = controlsReducer(controlsRef.current, patch);
+    controlsRef.current = next;
     dispatch(patch);
     if (
       patch.family !== undefined ||
       patch.weight !== undefined ||
       patch.text !== undefined
     ) {
-      const next = controlsReducer(controls, patch);
       loadFont(next.family, next.weight, next.text);
     }
+  };
+
+  // Event-site duties from specs/custom-fonts.spec.md: a same-name
+  // replacement re-clamps the selected weight; removing the selected family
+  // falls back to the built-in default.
+  const addFonts = (items: readonly FontIntakeItem[]) => {
+    addFontIntakes(items, (registered) => {
+      const current = controlsRef.current;
+      if (
+        current.family === registered.name &&
+        !registered.weights.includes(current.weight)
+      ) {
+        updateControls({ weight: registered.weights[0] });
+      }
+    });
+  };
+  const removeFont = (name: string) => {
+    void removeCustomFont(name).then(({ removed }) => {
+      if (removed && controlsRef.current.family === name) {
+        updateControls({
+          family: INITIAL_CONTROLS.family,
+          weight: INITIAL_CONTROLS.weight,
+        });
+      }
+    });
   };
 
   const engine = useKernLab(controls);
@@ -65,14 +110,21 @@ export function KernLab() {
           canvasRef={engine.canvasRef}
           stageRef={engine.stageRef}
           fontReady={engine.fontReady}
+          onDropFonts={addFonts}
         />
 
         <div className="mt-4 grid grid-cols-1 gap-4">
-          <ControlPanel controls={controls} onChange={updateControls} />
+          <ControlPanel
+            controls={controls}
+            onChange={updateControls}
+            onAddFonts={addFonts}
+            onRemoveFont={removeFont}
+          />
           <ExportBar
             canExport={engine.canExport}
             onExportPng={engine.exportPng}
             onExportSvg={engine.exportSvg}
+            svgDisabledReason={engine.svgDisabledReason}
           />
           <PairReadout pairs={engine.pairs} mode={controls.mode} />
         </div>

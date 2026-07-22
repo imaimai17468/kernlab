@@ -11,8 +11,8 @@ describe("weightsOf", () => {
     expect(weightsOf("Oswald")).toEqual([400, 600, 700]);
   });
 
-  it("should fall back to [400] when the family is unknown", () => {
-    expect(weightsOf("No Such Font")).toEqual([400]);
+  it("should return undefined when the family is unknown", () => {
+    expect(weightsOf("No Such Font")).toBeUndefined();
   });
 });
 
@@ -23,6 +23,10 @@ describe("resolveWeight", () => {
 
   it("should clamp to the first supported weight when unsupported", () => {
     expect(resolveWeight("Anton", 700)).toBe(400);
+  });
+
+  it("should pass the weight through when the family is unknown", () => {
+    expect(resolveWeight("Custom Family", 650)).toBe(650);
   });
 });
 

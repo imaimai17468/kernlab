@@ -8,11 +8,16 @@ import {
 } from "react";
 import { MS, PAPER } from "./engine/constants";
 import type { Controls } from "./engine/controls";
+import {
+  getCustomFontsGeneration,
+  subscribeCustomFonts,
+} from "./engine/customFonts";
 import { exportPNG, exportSVG } from "./engine/export";
 import { isFontSettled, subscribeFonts } from "./engine/fontLoader";
 import { computeLayout } from "./engine/kerning";
 import { renderToContext } from "./engine/render";
 import type { Pair } from "./engine/types";
+import { useCustomFonts } from "./useCustomFonts";
 
 type UseKernLabResult = {
   canvasRef: RefObject<HTMLCanvasElement | null>;
@@ -22,6 +27,8 @@ type UseKernLabResult = {
   canExport: boolean;
   exportPng: (transparent: boolean) => void;
   exportSvg: () => void;
+  /** Set when SVG export is unavailable for the selected font. */
+  svgDisabledReason: string | undefined;
 };
 
 /**
@@ -50,13 +57,32 @@ export function useKernLab(controls: Controls): UseKernLabResult {
     () => false
   );
 
-  const layout = useMemo(
-    () =>
-      fontReady
-        ? computeLayout({ text, family, weight, tightness, frame, mode })
-        : null,
-    [fontReady, text, family, weight, tightness, frame, mode]
+  // A same-name custom-font replacement changes the rendered faces (and
+  // clears the glyph cache) without changing any control value — the registry
+  // generation is the render input that forces the recompute.
+  const fontsGeneration = useSyncExternalStore(
+    subscribeCustomFonts,
+    getCustomFontsGeneration,
+    () => 0
   );
+
+  const layout = useMemo(() => {
+    // Read (not used) so registry mutations invalidate the memo: a swap
+    // changes what the same {family, weight} measures to.
+    void fontsGeneration;
+    return fontReady
+      ? computeLayout({ text, family, weight, tightness, frame, mode })
+      : null;
+  }, [
+    fontReady,
+    fontsGeneration,
+    text,
+    family,
+    weight,
+    tightness,
+    frame,
+    mode,
+  ]);
 
   const pairs = useMemo<Pair[]>(
     () => layout?.pairInfo.map((p) => ({ ...p, em: p.s / MS })) ?? [],
@@ -118,6 +144,13 @@ export function useKernLab(controls: Controls): UseKernLabResult {
   };
   const canExport = layout !== null;
 
+  // opentype.js outlines only a variable font's default master, so SVG export
+  // would emit wrong-weight artwork — disabled with a reason instead.
+  const { fonts: customFonts } = useCustomFonts();
+  const svgDisabledReason = customFonts.find((f) => f.name === family)?.variable
+    ? "バリアブルフォントのSVG書き出しは未対応です。PNGをご利用ください"
+    : undefined;
+
   return {
     canvasRef,
     stageRef,
@@ -126,5 +159,6 @@ export function useKernLab(controls: Controls): UseKernLabResult {
     canExport,
     exportPng,
     exportSvg,
+    svgDisabledReason,
   };
 }

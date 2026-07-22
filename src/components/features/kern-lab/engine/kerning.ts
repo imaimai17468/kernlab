@@ -9,6 +9,16 @@ import type { Glyph, Layout, Mode, PairInfo, PlacedGlyph } from "./types";
 const glyphCache = new Map<string, Glyph>();
 const GLYPH_CACHE_MAX = 512;
 
+/**
+ * Drop every memoized measurement. The custom-font registry calls this on
+ * every mutation: a same-name replacement re-binds the family string to a
+ * different face, so entries keyed `${ch}|${family}|${weight}` would otherwise
+ * keep serving the OLD font's ink geometry after the swap.
+ */
+export function clearGlyphCache(): void {
+  glyphCache.clear();
+}
+
 /** Measure one glyph on an offscreen raster: ink bounding box + per-row edge profiles. */
 function measureGlyph(ch: string, family: string, weight: number): Glyph {
   const key = `${ch}|${family}|${weight}`;

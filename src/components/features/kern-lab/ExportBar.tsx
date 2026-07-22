@@ -5,6 +5,8 @@ type ExportBarProps = {
   canExport: boolean;
   onExportPng: (transparent: boolean) => void;
   onExportSvg: () => void;
+  /** Set when SVG export is unavailable for the current font (shown as-is). */
+  svgDisabledReason?: string;
 };
 
 /** PNG/SVG export actions for the current layout. */
@@ -12,6 +14,7 @@ export function ExportBar({
   canExport,
   onExportPng,
   onExportSvg,
+  svgDisabledReason,
 }: ExportBarProps) {
   return (
     <div className="flex flex-wrap items-center gap-3 border-t border-kl-ink pt-3.5">
@@ -37,13 +40,14 @@ export function ExportBar({
       <button
         type="button"
         className={`${exportBtnClass} text-kl-blue`}
-        disabled={!canExport}
+        disabled={!canExport || svgDisabledReason !== undefined}
         onClick={onExportSvg}
       >
         SVG（ベクター）
       </button>
       <span className="text-xs text-kl-muted max-sm:hidden">
-        PNGは字面から最適サイズ・約2400px幅で出力／SVGはフォント埋め込み
+        {svgDisabledReason ??
+          "PNGは字面から最適サイズ・約2400px幅で出力／SVGは内蔵フォントは参照・カスタムフォントはアウトライン埋め込み"}
       </span>
     </div>
   );
